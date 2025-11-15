@@ -1,0 +1,22 @@
+{
+    "name": "AssetSystemEditor",
+    "rootNamespace": "",
+    "references": [
+        "AssetSystem",
+        "Zenject-TestFramework",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner",
+        "UniTask"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

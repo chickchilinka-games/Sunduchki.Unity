@@ -1,0 +1,12 @@
+0.4.0
+
+- Migrated from UniRx to R3
+- Added reactive title
+- Added closing callback
+- Bugfixes
+
+0.0.1
+
+- Resource provider was added
+- Addressables provider was added
+- Examle was done

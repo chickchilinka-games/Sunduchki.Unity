@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a24bb40b7d5444cead5a7cec83068064, type: 3}
+  m_Name: TabConfig
+  m_EditorClassIdentifier: 
+  TabPrefab: {fileID: 4652033759566034191, guid: cec29c4cdfb3e5e46b4dc51360fff363, type: 3}
+  Tabs:
+  - LayoutId: Logger
+    TabName: Logs
+    TabIcon: {fileID: 21300000, guid: 0532d0e28fa41b14cac97fd792d6b6a3, type: 3}
+  - LayoutId: Reporter
+    TabName: Report
+    TabIcon: {fileID: 21300000, guid: 2bae3d38c27d03f48aaf659cbef436e1, type: 3}
+  - LayoutId: Cheat
+    TabName: Cheats
+    TabIcon: {fileID: 21300000, guid: ab742fac184b4b7428fa29f99a6fb784, type: 3}

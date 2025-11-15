@@ -1,0 +1,139 @@
+# Unity .gitignore - Universal (Windows & macOS)
+
+# ==============================
+# Unity Generated Files
+# ==============================
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+[Uu]serSettings/
+.gradle/
+obj.meta
+
+# ==============================
+# Visual Studio / Visual Studio Code / Rider
+# ==============================
+.idea/
+ExportedObj/
+.consulo/
+.vscode/
+.vs/
+/[Aa]ssets/Plugins/Editor/JetBrains*
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# ==============================
+# Builds
+# ==============================
+Build/
+win64/
+/android
+/ios
+
+# ==============================
+# Packed Addressables
+# ==============================
+/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+
+# ==============================
+# Temporary Unity Files
+# ==============================
+# Temporary auto-generated Android Assets
+Assets/StreamingAssets/build_info.meta
+Assets/StreamingAssets/build_info
+
+# ==============================
+# Operating System Files
+# ==============================
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.temp
+*.lnk
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# ==============================
+# AI Development Tools
+# ==============================
+.cursor
+.continue
+
+# ==============================
+# Package Managers
+# ==============================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+
+# ==============================
+# Miscellaneous
+# ==============================
+
+# Log files
+*.log
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ==============================
+# Debug Settings
+# ==============================
+Packages/com.singularitygroup.hotreload/
+Packages/packages-lock.json
+DiExplorerSceneComponentsSaves.json
+ARRecordings
+ARRecordings.meta
+
+# LLMs configuration
+
+CLAUDE.md
+AGENTS.md

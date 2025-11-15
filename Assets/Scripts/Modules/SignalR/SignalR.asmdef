@@ -1,0 +1,21 @@
+{
+    "name": "SignalR",
+    "rootNamespace": "",
+    "references": [
+        "UniTask",
+        "Newtonsoft.Json"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [
+        "Microsoft.AspNetCore.SignalR.Client.dll",
+        "Microsoft.Bcl.AsyncInterfaces.dll",
+        "System.Threading.Channels.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

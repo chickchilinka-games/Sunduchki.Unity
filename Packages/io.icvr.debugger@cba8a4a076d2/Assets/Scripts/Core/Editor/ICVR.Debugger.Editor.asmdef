@@ -1,0 +1,17 @@
+{
+    "name": "ICVR.Debugger.Editor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:841fb0c4c4043c744a097023d0ea46d8",
+        "GUID:0d8beb7f090555447a6cf5ce9e54dbb4"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

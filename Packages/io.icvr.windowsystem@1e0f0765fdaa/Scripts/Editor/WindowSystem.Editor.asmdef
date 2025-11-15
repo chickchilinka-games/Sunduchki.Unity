@@ -1,0 +1,18 @@
+{
+    "name": "WindowSystem.Editor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:0dabb6126810944468de1b5b2b90116f"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
