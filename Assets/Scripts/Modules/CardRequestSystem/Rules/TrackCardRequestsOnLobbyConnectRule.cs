@@ -8,6 +8,7 @@ using Modules.Lobby.Model;
 using Modules.SignalR.Config;
 using R3;
 using Zenject;
+using UnityEngine;
 
 namespace Modules.CardRequestSystem.Rules
 {
@@ -58,6 +59,7 @@ namespace Modules.CardRequestSystem.Rules
             var config = _lobbyState.Config;
             if (string.IsNullOrWhiteSpace(config.GameId) || string.IsNullOrWhiteSpace(config.PlayerId))
             {
+                Debug.LogWarning("[CardRequestSystem] Missing game/player id, cannot subscribe to request events.");
                 return;
             }
 

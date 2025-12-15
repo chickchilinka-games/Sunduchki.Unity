@@ -8,6 +8,7 @@ using Modules.Lobby.Model;
 using Modules.SignalR.Config;
 using R3;
 using Zenject;
+using UnityEngine;
 
 namespace Modules.DeckSystem.Rules
 {
@@ -58,6 +59,7 @@ namespace Modules.DeckSystem.Rules
             var config = _lobbyState.Config;
             if (string.IsNullOrWhiteSpace(config.GameId) || string.IsNullOrWhiteSpace(config.PlayerId))
             {
+                Debug.LogWarning("[DeckSystem] Cannot start tracking deck: missing game or player id.");
                 return;
             }
 

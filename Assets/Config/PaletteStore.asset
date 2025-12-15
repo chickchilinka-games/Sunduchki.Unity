@@ -1,0 +1,245 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0edd4d6dec9974f11ba4b078ca3a0e1e, type: 3}
+  m_Name: PaletteStore
+  m_EditorClassIdentifier: 
+  _colorPalette:
+    _entries:
+      _keys:
+      - 7840587a-3b46-43bd-98ca-7ddc4058d400
+      - f82efcf9-56c9-4621-b761-6af469e68aec
+      - 143b0a0e-4fcf-46d8-a2d5-0b2dcafe929f
+      - 6825032d-8002-40c6-a40b-36241970a003
+      - 0e5b336c-8a93-4eec-b27b-733a53ec063a
+      - ffc8d9c7-2df3-4326-8cd7-a0bc1dedda5c
+      - d947e85e-c2d9-47cd-9b64-eeb3cd2178e9
+      - ec298cfa-43ef-4d91-9618-54a6c9fb8a3a
+      - cb0ee5b3-2743-41d8-a342-4f6a7c857b43
+      _values:
+      - _id: 7840587a-3b46-43bd-98ca-7ddc4058d400
+        _name:
+          _value: Text/Primary
+        _values:
+          _keys:
+          - 954cf13b-f21c-4dff-9009-e10d429c6db2
+          _values:
+          - _value: {r: 0, g: 0, b: 0, a: 1}
+      - _id: f82efcf9-56c9-4621-b761-6af469e68aec
+        _name:
+          _value: Text/Secondary
+        _values:
+          _keys:
+          - 954cf13b-f21c-4dff-9009-e10d429c6db2
+          _values:
+          - _value: {r: 0.4339623, g: 0.4339623, b: 0.4339623, a: 1}
+      - _id: 143b0a0e-4fcf-46d8-a2d5-0b2dcafe929f
+        _name:
+          _value: Background/Panel
+        _values:
+          _keys:
+          - 954cf13b-f21c-4dff-9009-e10d429c6db2
+          _values:
+          - _value: {r: 1, g: 1, b: 1, a: 1}
+      - _id: 6825032d-8002-40c6-a40b-36241970a003
+        _name:
+          _value: Background/Elevation
+        _values:
+          _keys:
+          - 954cf13b-f21c-4dff-9009-e10d429c6db2
+          _values:
+          - _value: {r: 0.8113208, g: 0.8113208, b: 0.8113208, a: 1}
+      - _id: 0e5b336c-8a93-4eec-b27b-733a53ec063a
+        _name:
+          _value: Text/Contrast
+        _values:
+          _keys:
+          - 954cf13b-f21c-4dff-9009-e10d429c6db2
+          _values:
+          - _value: {r: 1, g: 1, b: 1, a: 1}
+      - _id: ffc8d9c7-2df3-4326-8cd7-a0bc1dedda5c
+        _name:
+          _value: Background/ContrastTransparent
+        _values:
+          _keys:
+          - 954cf13b-f21c-4dff-9009-e10d429c6db2
+          _values:
+          - _value: {r: 0.16862746, g: 0.16862746, b: 0.16862746, a: 0.32941177}
+      - _id: d947e85e-c2d9-47cd-9b64-eeb3cd2178e9
+        _name:
+          _value: Button/Primary/Normal
+        _values:
+          _keys:
+          - 954cf13b-f21c-4dff-9009-e10d429c6db2
+          _values:
+          - _value: {r: 1, g: 1, b: 1, a: 1}
+      - _id: ec298cfa-43ef-4d91-9618-54a6c9fb8a3a
+        _name:
+          _value: Button/Primary/Pressed
+        _values:
+          _keys:
+          - 954cf13b-f21c-4dff-9009-e10d429c6db2
+          _values:
+          - _value: {r: 0.7735849, g: 0.762638, b: 0.762638, a: 1}
+      - _id: cb0ee5b3-2743-41d8-a342-4f6a7c857b43
+        _name:
+          _value: Button/Primary/Graphic/Normal
+        _values:
+          _keys:
+          - 954cf13b-f21c-4dff-9009-e10d429c6db2
+          _values:
+          - _value: {r: 0, g: 0, b: 0, a: 1}
+    _themes:
+      _keys:
+      - 954cf13b-f21c-4dff-9009-e10d429c6db2
+      _values:
+      - _id: 954cf13b-f21c-4dff-9009-e10d429c6db2
+        _name:
+          _value: Default
+    _entryOrders:
+      _ids:
+      - 7840587a-3b46-43bd-98ca-7ddc4058d400
+      - f82efcf9-56c9-4621-b761-6af469e68aec
+      - 143b0a0e-4fcf-46d8-a2d5-0b2dcafe929f
+      - 6825032d-8002-40c6-a40b-36241970a003
+      - 0e5b336c-8a93-4eec-b27b-733a53ec063a
+      - ffc8d9c7-2df3-4326-8cd7-a0bc1dedda5c
+      - d947e85e-c2d9-47cd-9b64-eeb3cd2178e9
+      - ec298cfa-43ef-4d91-9618-54a6c9fb8a3a
+      - cb0ee5b3-2743-41d8-a342-4f6a7c857b43
+    _themeOrders:
+      _ids:
+      - 954cf13b-f21c-4dff-9009-e10d429c6db2
+    _activeThemeId: 954cf13b-f21c-4dff-9009-e10d429c6db2
+  _gradientPalette:
+    _entries:
+      _keys: []
+      _values: []
+    _themes:
+      _keys:
+      - c8f8e7f3-2f17-4999-9cb3-954734580d65
+      _values:
+      - _id: c8f8e7f3-2f17-4999-9cb3-954734580d65
+        _name:
+          _value: Default
+    _entryOrders:
+      _ids: []
+    _themeOrders:
+      _ids:
+      - c8f8e7f3-2f17-4999-9cb3-954734580d65
+    _activeThemeId: c8f8e7f3-2f17-4999-9cb3-954734580d65
+  _characterStylePalette:
+    _entries:
+      _keys: []
+      _values: []
+    _themes:
+      _keys:
+      - 7be3025d-67d1-4587-b68b-6e5a2eb507e1
+      _values:
+      - _id: 7be3025d-67d1-4587-b68b-6e5a2eb507e1
+        _name:
+          _value: Default
+    _entryOrders:
+      _ids: []
+    _themeOrders:
+      _ids:
+      - 7be3025d-67d1-4587-b68b-6e5a2eb507e1
+    _activeThemeId: 7be3025d-67d1-4587-b68b-6e5a2eb507e1
+  _characterStyleTMPPalette:
+    _entries:
+      _keys:
+      - ea694ebf-e6dd-44b7-b207-6b6e80c6f039
+      - 277ded0d-911a-4fd5-9aac-922c40078918
+      - 2346d1ad-6b23-4177-aba9-d895618e0454
+      _values:
+      - _id: ea694ebf-e6dd-44b7-b207-6b6e80c6f039
+        _name:
+          _value: Headline
+        _values:
+          _keys:
+          - 9753c5d0-dde7-4647-aa0c-e44b5999de6b
+          _values:
+          - _value:
+              font: {fileID: 11400000, guid: ad8790c263439d94ab537a8aa2e76c47, type: 2}
+              fontStyle: 1
+              fontSize: 36
+              enableAutoSizing: 0
+              enableAutoSizeOptions: 1
+              fontSizeMin: 18
+              fontSizeMax: 72
+              characterWidthAdjustment: 0
+              lineSpacingAdjustment: 0
+              characterSpacing: 0
+              wordSpacing: 0
+              lineSpacing: 0
+              paragraphSpacing: 0
+              fontSharedMaterial: {fileID: 0}
+      - _id: 277ded0d-911a-4fd5-9aac-922c40078918
+        _name:
+          _value: Title
+        _values:
+          _keys:
+          - 9753c5d0-dde7-4647-aa0c-e44b5999de6b
+          _values:
+          - _value:
+              font: {fileID: 11400000, guid: ad8790c263439d94ab537a8aa2e76c47, type: 2}
+              fontStyle: 0
+              fontSize: 30
+              enableAutoSizing: 0
+              enableAutoSizeOptions: 1
+              fontSizeMin: 18
+              fontSizeMax: 72
+              characterWidthAdjustment: 0
+              lineSpacingAdjustment: 0
+              characterSpacing: 0
+              wordSpacing: 0
+              lineSpacing: 0
+              paragraphSpacing: 0
+              fontSharedMaterial: {fileID: 0}
+      - _id: 2346d1ad-6b23-4177-aba9-d895618e0454
+        _name:
+          _value: Body
+        _values:
+          _keys:
+          - 9753c5d0-dde7-4647-aa0c-e44b5999de6b
+          _values:
+          - _value:
+              font: {fileID: 11400000, guid: ad8790c263439d94ab537a8aa2e76c47, type: 2}
+              fontStyle: 0
+              fontSize: 24
+              enableAutoSizing: 0
+              enableAutoSizeOptions: 1
+              fontSizeMin: 18
+              fontSizeMax: 72
+              characterWidthAdjustment: 0
+              lineSpacingAdjustment: 0
+              characterSpacing: 0
+              wordSpacing: 0
+              lineSpacing: 0
+              paragraphSpacing: 0
+              fontSharedMaterial: {fileID: 0}
+    _themes:
+      _keys:
+      - 9753c5d0-dde7-4647-aa0c-e44b5999de6b
+      _values:
+      - _id: 9753c5d0-dde7-4647-aa0c-e44b5999de6b
+        _name:
+          _value: Default
+    _entryOrders:
+      _ids:
+      - ea694ebf-e6dd-44b7-b207-6b6e80c6f039
+      - 277ded0d-911a-4fd5-9aac-922c40078918
+      - 2346d1ad-6b23-4177-aba9-d895618e0454
+    _themeOrders:
+      _ids:
+      - 9753c5d0-dde7-4647-aa0c-e44b5999de6b
+    _activeThemeId: 9753c5d0-dde7-4647-aa0c-e44b5999de6b
+  _missingEntryErrorLevel: 1

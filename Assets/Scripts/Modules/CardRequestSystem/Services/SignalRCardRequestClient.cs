@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.CardRequestSystem.Data;
@@ -54,6 +55,11 @@ namespace Modules.CardRequestSystem.Services
             connection.On<string, string, string>("NoCardsResponse", (from, target, rank) =>
             {
                 listener.OnNoCardsResponse(from, target, rank);
+            });
+
+            connection.On<string, string, string, List<string>>("DefenseDecisionRequested", (asker, target, rank, options) =>
+            {
+                listener.OnDefenseDecisionRequested(asker, target, rank, options ?? new List<string>());
             });
         }
 

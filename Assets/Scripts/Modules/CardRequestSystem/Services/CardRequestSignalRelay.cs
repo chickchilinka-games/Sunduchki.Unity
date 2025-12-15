@@ -1,14 +1,20 @@
+using System;
+using System.Collections.Generic;
 using Modules.CardRequestSystem.Interfaces;
+using Modules.DefenseDecisionSystem.Data;
+using Modules.DefenseDecisionSystem.Interfaces;
 
 namespace Modules.CardRequestSystem.Services
 {
     public class CardRequestSignalRelay : ICardRequestSignalHandler
     {
         private readonly ICardRequestStateWriter _stateWriter;
+        private readonly IDefenseDecisionPromptWriter _defensePromptWriter;
 
-        public CardRequestSignalRelay(ICardRequestStateWriter stateWriter)
+        public CardRequestSignalRelay(ICardRequestStateWriter stateWriter, IDefenseDecisionPromptWriter defensePromptWriter)
         {
-            _stateWriter = stateWriter;
+            _stateWriter = stateWriter ?? throw new ArgumentNullException(nameof(stateWriter));
+            _defensePromptWriter = defensePromptWriter;
         }
 
         public void OnCardsRequested(string from, string target, string rank)
@@ -26,9 +32,21 @@ namespace Modules.CardRequestSystem.Services
             _stateWriter.RegisterNoCards(from, target, rank);
         }
 
+        public void OnDefenseDecisionRequested(string askerId, string targetId, string rank, IReadOnlyList<string> defenseOptions)
+        {
+            if (_defensePromptWriter == null)
+            {
+                return;
+            }
+
+            var prompt = new DefenseDecisionPrompt(askerId, targetId, rank, defenseOptions);
+            _defensePromptWriter.PublishPrompt(prompt);
+        }
+
         public void ResetState()
         {
             _stateWriter.Reset();
+            _defensePromptWriter?.ClearPrompt();
         }
     }
 }

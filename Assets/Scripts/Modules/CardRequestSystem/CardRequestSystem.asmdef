@@ -3,6 +3,7 @@
     "rootNamespace": "",
     "references": [
         "R3",
+        "DefenseDecisionSystem",
         "Lobby",
         "Zenject",
         "SignalR",

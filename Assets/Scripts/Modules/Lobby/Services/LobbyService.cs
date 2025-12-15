@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.Lobby.Data;
@@ -34,6 +35,12 @@ namespace Modules.Lobby.Services
         public Observable<LobbyGameStartedPayload> GameStarted => _state.GameStarted;
         public Observable<LobbyGameEndedPayload> GameEnded => _state.GameEnded;
 
+
+        public LobbyPlayerInfo GetLocalPlayer()
+        {
+            return _state.Players.CurrentValue.FirstOrDefault(player=>player.IsLocal);    
+        }
+        
         public void UpdateConfig(LobbyConfig config)
         {
             _state.UpdateConfig(config);
