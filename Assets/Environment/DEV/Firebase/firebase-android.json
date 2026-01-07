@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "146224185122",
+    "project_id": "sunduchki-dev",
+    "storage_bucket": "sunduchki-dev.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:146224185122:android:3d37e4937858412a166f7b",
+        "android_client_info": {
+          "package_name": "com.marrowmachine.sunduchki"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBHoT2ummwdJPIZhSHdxgD2kj7g8-F7xB8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

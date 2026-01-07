@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.DeckSystem.Data;
@@ -41,24 +42,83 @@ namespace Modules.DeckSystem.Services
 
         private static void RegisterHandlers(ISignalRConnection connection, IDeckSignalListener listener)
         {
-            connection.On<int?, int?>("DeckConfigured", (remaining, total) =>
+            connection.On<DeckConfiguredDto>("DeckConfigured", payload =>
             {
-                listener.OnDeckConfigured(remaining, total);
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnDeckConfigured(payload.RemainingCards, payload.TotalCards);
             });
 
-            connection.On<string, string, string>("DrewStandardFromDeck", (playerId, rank, suit) =>
+            connection.On<StandardCardDrawnDto>("DrewStandardFromDeck", payload =>
             {
-                listener.OnStandardCardDrawn(playerId, new DeckCardData(rank, suit));
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnStandardCardDrawn(payload.PlayerId, new DeckCardData(payload.Rank, payload.Suit));
             });
 
-            connection.On<string, string>("DrewBonusFromDeck", (playerId, bonusType) =>
+            connection.On<BonusCardDrawnDto>("DrewBonusFromDeck", payload =>
             {
-                listener.OnBonusCardDrawn(playerId, bonusType);
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnBonusCardDrawn(payload.PlayerId, payload.BonusType);
             });
 
-            connection.On<string, string, string, string>("PeekedAtDeck", (playerId, rank, suit, bonusType) =>
+            connection.On<PeekedAtDeckDto>("PeekedAtDeck", payload =>
             {
-                listener.OnDeckPeeked(playerId, new DeckCardData(rank, suit), bonusType);
+                if (payload == null)
+                {
+                    return;
+                }
+
+                var rank = payload.Rank ?? string.Empty;
+                var suit = payload.Suit ?? string.Empty;
+                var bonus = payload.BonusType ?? string.Empty;
+                var cards = new List<DeckPeekCardData>
+                {
+                    new DeckPeekCardData(rank, suit, bonus)
+                };
+                listener.OnDeckPeeked(payload.PlayerId, cards);
+            });
+
+            connection.On<PeekedAtDecksDto>("PeekedAtDecks", payload =>
+            {
+                if (payload == null)
+                {
+                    return;
+                }
+
+                var cards = new List<DeckPeekCardData>();
+                if (payload.Cards != null)
+                {
+                    foreach (var card in payload.Cards)
+                    {
+                        cards.Add(new DeckPeekCardData(
+                            card.Rank ?? string.Empty,
+                            card.Suit ?? string.Empty,
+                            card.BonusType ?? string.Empty));
+                    }
+                }
+
+                listener.OnDeckPeeked(payload.PlayerId, cards);
+            });
+
+            connection.On<DeckAdjustedDto>("DeckAdjusted", payload =>
+            {
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnDeckAdjusted(payload.Delta);
             });
         }
 
@@ -89,6 +149,51 @@ namespace Modules.DeckSystem.Services
         {
             public string GameId { get; set; }
             public string PlayerId { get; set; }
+        }
+
+        private sealed class DeckConfiguredDto
+        {
+            public int? RemainingCards { get; set; }
+            public int? TotalCards { get; set; }
+        }
+
+        private sealed class StandardCardDrawnDto
+        {
+            public string PlayerId { get; set; }
+            public string Rank { get; set; }
+            public string Suit { get; set; }
+        }
+
+        private sealed class BonusCardDrawnDto
+        {
+            public string PlayerId { get; set; }
+            public string BonusType { get; set; }
+        }
+
+        private sealed class PeekedAtDeckDto
+        {
+            public string PlayerId { get; set; }
+            public string Rank { get; set; }
+            public string Suit { get; set; }
+            public string BonusType { get; set; }
+        }
+
+        private sealed class PeekedAtDecksDto
+        {
+            public string PlayerId { get; set; }
+            public PeekedCardDto[] Cards { get; set; }
+        }
+
+        private sealed class PeekedCardDto
+        {
+            public string Rank { get; set; }
+            public string Suit { get; set; }
+            public string BonusType { get; set; }
+        }
+
+        private sealed class DeckAdjustedDto
+        {
+            public int Delta { get; set; }
         }
     }
 }

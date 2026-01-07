@@ -11,6 +11,7 @@ using Modules.Lobby.Interfaces;
 using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.Networking;
+using Zenject;
 
 namespace Modules.Lobby.Providers
 {
@@ -19,10 +20,12 @@ namespace Modules.Lobby.Providers
         private static readonly byte[] EmptyPayload = Array.Empty<byte>();
 
         private readonly ILobbyApiConfigProvider _configProvider;
+        private readonly ITokenProvider _tokenProvider;
 
-        public RestLobbyApiClient(ILobbyApiConfigProvider configProvider)
+        public RestLobbyApiClient(ILobbyApiConfigProvider configProvider, ITokenProvider tokenProvider)
         {
             _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+            _tokenProvider = tokenProvider;
         }
 
         public async UniTask<CreateGameResult> CreateGameAsync(CreateGameOptions options, CancellationToken cancellationToken = default)
@@ -35,7 +38,7 @@ namespace Modules.Lobby.Providers
             };
 
             var uri = BuildUri("/api/games", query);
-            using var request = BuildPostRequest(uri);
+            using var request = BuildPostRequest(uri, ResolveAccessToken());
             await request.SendWebRequest().ToUniTask(cancellationToken: cancellationToken);
             EnsureSuccess(request, "create game");
 
@@ -56,22 +59,14 @@ namespace Modules.Lobby.Providers
                 throw new ArgumentException("GameId is required.", nameof(gameId));
             }
 
-            if (string.IsNullOrWhiteSpace(options.Token))
+            var resolvedToken = ResolveAccessToken();
+            if (string.IsNullOrWhiteSpace(resolvedToken))
             {
                 throw new ArgumentException("JoinGame requires an authentication token.", nameof(options));
             }
 
-            var query = new Dictionary<string, string>
-            {
-                ["token"] = options.Token
-            };
-            if (!string.IsNullOrWhiteSpace(options.Name))
-            {
-                query["name"] = options.Name;
-            }
-
-            var uri = BuildUri($"/api/games/{gameId}/join", query);
-            using var request = BuildPostRequest(uri);
+            var uri = BuildUri($"/api/games/{gameId}/join", null);
+            using var request = BuildPostRequest(uri, resolvedToken);
             await request.SendWebRequest().ToUniTask(cancellationToken: cancellationToken);
             EnsureSuccess(request, "join game");
 
@@ -98,19 +93,12 @@ namespace Modules.Lobby.Providers
                         continue;
                     }
 
-                    var name = player.ResolveName();
-                    if (string.IsNullOrWhiteSpace(name))
-                    {
-                        name = GenerateFallbackName(id);
-                    }
-
-                    players.Add(new LobbyPlayerInfo(id, name, false));
+                    players.Add(new LobbyPlayerInfo(id, false));
                 }
             }
 
             return new JoinGameResult(
                 dto.PlayerId,
-                string.IsNullOrWhiteSpace(dto.Name) ? GenerateFallbackName(dto.PlayerId) : dto.Name,
                 players.ToArray(),
                 dto.DeckCount,
                 dto.TotalCards);
@@ -124,7 +112,7 @@ namespace Modules.Lobby.Providers
             }
 
             var uri = BuildUri($"/api/games/{gameId}/start", null);
-            using var request = BuildPostRequest(uri);
+            using var request = BuildPostRequest(uri, ResolveAccessToken());
             await request.SendWebRequest().ToUniTask(cancellationToken: cancellationToken);
             EnsureSuccess(request, "start game");
         }
@@ -152,7 +140,7 @@ namespace Modules.Lobby.Providers
             return builder.Uri.ToString();
         }
 
-        private static UnityWebRequest BuildPostRequest(string uri)
+        private static UnityWebRequest BuildPostRequest(string uri, string accessToken)
         {
             var request = new UnityWebRequest(uri, UnityWebRequest.kHttpVerbPOST)
             {
@@ -160,7 +148,22 @@ namespace Modules.Lobby.Providers
                 downloadHandler = new DownloadHandlerBuffer()
             };
             request.SetRequestHeader("Content-Type", "application/json");
+            if (!string.IsNullOrWhiteSpace(accessToken))
+            {
+                request.SetRequestHeader("Authorization", $"Bearer {accessToken}");
+            }
             return request;
+        }
+
+        private string ResolveAccessToken()
+        {
+            var token = _tokenProvider?.GetToken();
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                return token;
+            }
+
+            return string.Empty;
         }
 
         private static void EnsureSuccess(UnityWebRequest request, string context)
@@ -177,17 +180,6 @@ namespace Modules.Lobby.Providers
             throw new LobbyApiException(statusCode, body, message);
         }
 
-        private static string GenerateFallbackName(string playerId)
-        {
-            if (string.IsNullOrWhiteSpace(playerId))
-            {
-                return "Player";
-            }
-
-            var suffix = playerId.Length > 4 ? playerId[..4] : playerId;
-            return $"Player {suffix}";
-        }
-
         private sealed class CreateGameResponseDto
         {
             [JsonProperty("gameId")]
@@ -198,9 +190,6 @@ namespace Modules.Lobby.Providers
         {
             [JsonProperty("playerId")]
             public string PlayerId { get; set; }
-
-            [JsonProperty("name")]
-            public string Name { get; set; }
 
             [JsonProperty("players")]
             public PlayerDto[] Players { get; set; }
@@ -220,15 +209,8 @@ namespace Modules.Lobby.Providers
             [JsonProperty("Id")]
             public string LegacyId { get; set; }
 
-            [JsonProperty("name")]
-            public string Name { get; set; }
-
-            [JsonProperty("Name")]
-            public string LegacyName { get; set; }
-
             public string ResolveId() => !string.IsNullOrWhiteSpace(Id) ? Id : LegacyId;
 
-            public string ResolveName() => !string.IsNullOrWhiteSpace(Name) ? Name : LegacyName;
         }
     }
 }

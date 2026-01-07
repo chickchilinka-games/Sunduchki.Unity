@@ -60,28 +60,33 @@ namespace Modules.AssetSystem.Editor.AssetPicker.View
 
         private void Init()
         {
-            _entries = AssetRefRegistry.Query(_type).ToList();
+            _entries = AssetRefRegistry.Query(_type);
         }
 
         private IEnumerable<string> GetSubfolders(string folder)
         {
             var prefix = string.IsNullOrEmpty(folder) ? "" : folder + "/";
-            return _entries.Select(e => e.Folder)
-                .Where(f => f.StartsWith(prefix))
-                .Select(f =>
-                {
-                    var rest = f.Length > prefix.Length ? f.Substring(prefix.Length) : "";
-                    var slash = rest.IndexOf('/');
-                    return slash >= 0 ? rest.Substring(0, slash) : rest;
-                })
-                .Where(s => !string.IsNullOrEmpty(s))
-                .Distinct()
-                .OrderBy(s => s);
+
+            string Selector(string dir)
+            {
+                var rest = dir.Length > prefix.Length ? dir[prefix.Length..] : "";
+                var slash = rest.IndexOf('/');
+                return slash >= 0 ? rest[..slash] : rest;
+            }
+
+            foreach(var item in _entries
+                        .Select(e => e.Folder)
+                        .Where(f => f.StartsWith(prefix))
+                        .Select(Selector)
+                        .Where(s => !string.IsNullOrEmpty(s))
+                        .Distinct()
+                        .OrderBy(s => s))
+            {
+                yield return item;
+            }
         }
-
-        private IEnumerable<AssetRefEntry> GetEntriesInFolder(string folder)
-            => _entries.Where(e => e.Folder == (folder ?? "")).OrderBy(e => e.Name);
-
+        
+        
         private void OnGUI()
         {
             using var scroll = new EditorGUILayout.ScrollViewScope(_scroll);
@@ -121,13 +126,31 @@ namespace Modules.AssetSystem.Editor.AssetPicker.View
 
             var entries = string.IsNullOrEmpty(_search)
                 ? GetEntriesInFolder(_currentFolder)
-                : _entries.Where(e => e.AssetRef.IndexOf(_search, StringComparison.OrdinalIgnoreCase) >= 0);
+                : SortEntries(_entries);
 
             foreach (var e in entries)
             {
                 DrawRow(e.Name, e.Folder + "/" + e.Name, isFolder: false, entry: e, rowIndex: rowIndex++);
             }
         }
+
+        private IEnumerable<AssetRefEntry> SortEntries(List<AssetRefEntry> entries)
+        {
+            foreach (var entry in entries)
+            {
+                if (entry.AssetRef.IndexOf(_search, StringComparison.OrdinalIgnoreCase) >= 0)
+                    yield return entry;
+            }
+        }
+        
+        private IEnumerable<AssetRefEntry> GetEntriesInFolder(string folder)
+        {
+            foreach (var entry in _entries
+                         .Where(e => e.Folder == (folder ?? ""))
+                         .OrderBy(e => e.Name))
+                yield return entry;
+        }
+
 
         private void DrawRow(string assetName, string path, bool isFolder, AssetRefEntry entry = null,
             int rowIndex = 0)

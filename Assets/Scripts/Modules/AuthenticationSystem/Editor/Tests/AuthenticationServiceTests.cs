@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using Modules.AuthenticationSystem.Data;
@@ -154,7 +155,7 @@ namespace Modules.AuthenticationSystem.Editor.Tests
                 .Select(t => new LinkageInfo(t, $"{t}User", $"{t}@mail.test"))
                 .ToList() ?? new List<LinkageInfo>();
 
-            return new UserContext(userId, $"{userId}-name", "user", linkageInfos);
+            return new UserContext(userId, $"{userId}-name", "user", "token", linkageInfos);
         }
 
         private sealed class CapturingCredentialProvider : ICredentialProvider
@@ -195,16 +196,25 @@ namespace Modules.AuthenticationSystem.Editor.Tests
                 _ => UniTask.FromResult(false);
 
             public Func<UniTask> SignOutHandler { get; set; } = () => UniTask.CompletedTask;
+            public Func<CancellationToken, UniTask<UserContext>> RefreshHandler { get; set; } =
+                _ => UniTask.FromResult<UserContext>(null);
 
             public UniTask<UserContext> GetCachedUserContextAsync() => CachedUserFactory();
 
             public UniTask<UserContext> SignInAsync(AuthCredential credential) => SignInHandler(credential);
 
             public UniTask<LinkageInfo> LinkAsync(AuthCredential credential) => LinkHandler(credential);
+            public UniTask DeleteAsync(AuthCredential credential)
+            {
+                return UniTask.CompletedTask;
+            }
 
             public UniTask UnlinkAsync(AuthType authType) => UnlinkHandler(authType);
 
             public UniTask SignOutAsync() => SignOutHandler();
+
+            public UniTask<UserContext> RefreshAsync(CancellationToken cancellationToken = default)
+                => RefreshHandler(cancellationToken);
         }
     }
 }

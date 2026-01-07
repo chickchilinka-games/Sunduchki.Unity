@@ -8,6 +8,7 @@ namespace Modules.AuthenticationSystem.Data
         None = 0,
         Anonymous = 1,
         Google = 2,
-        Apple = 3
+        Apple = 3,
+        Email = 4
     }
 }

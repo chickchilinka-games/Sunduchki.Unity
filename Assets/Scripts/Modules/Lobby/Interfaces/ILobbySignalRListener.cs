@@ -4,12 +4,16 @@ namespace Modules.Lobby.Interfaces
 {
     public interface ILobbySignalRListener
     {
-        void OnPlayerJoined(string playerId, string playerName);
+        void OnPlayerJoined(string playerId);
 
         void OnPlayerLeft(string playerId);
 
         void OnGameStarted();
 
-        void OnGameEnded(object payload);
+        void OnGameEnded(GameEndedResultDto payload);
+
+        void OnSetCompleted(string playerId, string rank);
+
+        void OnConnectionClosed(string error);
     }
 }

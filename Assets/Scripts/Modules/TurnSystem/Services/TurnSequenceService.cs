@@ -6,7 +6,7 @@ using R3;
 
 namespace Modules.TurnSystem.Services
 {
-    public class TurnSequenceService : ITurnSequenceService
+    public class TurnSequenceService
     {
         private readonly TurnSequenceModel _model;
         private string _localPlayerId;

@@ -3,7 +3,11 @@
     "rootNamespace": "",
     "references": [
         "R3",
-        "Zenject"
+        "Zenject",
+        "UniTask",
+        "Newtonsoft.Json",
+        "Authentication",
+        "Profiles"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

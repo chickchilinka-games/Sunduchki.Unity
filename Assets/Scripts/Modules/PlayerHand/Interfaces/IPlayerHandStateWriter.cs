@@ -15,6 +15,8 @@ namespace Modules.PlayerHand.Interfaces
 
         void RemoveBonusCard(string playerId, BonusCardData card);
 
+        void NotifyBonusUsed(string playerId, BonusCardData card);
+
         void ClearHand(string playerId);
 
         void ResetAll();

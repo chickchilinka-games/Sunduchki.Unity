@@ -52,6 +52,7 @@ namespace Modules.AuthenticationSystem.Entities
                 _userContextStream.Value.UserId,
                 _userContextStream.Value.Username,
                 _userContextStream.Value.Role,
+                _userContextStream.Value.JwtToken,
                 updatedLinked);
         }
 
@@ -69,6 +70,7 @@ namespace Modules.AuthenticationSystem.Entities
                 _userContextStream.Value.UserId,
                 _userContextStream.Value.Username,
                 _userContextStream.Value.Role,
+                _userContextStream.Value.JwtToken,
                 updatedLinked);
         }
     }

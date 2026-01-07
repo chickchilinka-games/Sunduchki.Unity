@@ -12,7 +12,7 @@ namespace Features.PlayerHandSystemImpl.View
 {
     public class BonusCardView : MonoBehaviour
     {
-        private const string BonusSpriteFormat = "bonus_{0}";
+        private const string BonusSpriteFormat = "Art/Cards/Bonus/bonus_{0}";
 
         [SerializeField] private Image _icon;
         [SerializeField] private Button _button;

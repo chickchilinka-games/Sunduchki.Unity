@@ -3,7 +3,9 @@
     "rootNamespace": "",
     "references": [
         "UniTask",
-        "Newtonsoft.Json"
+        "Newtonsoft.Json",
+        "Authentication",
+        "Zenject"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

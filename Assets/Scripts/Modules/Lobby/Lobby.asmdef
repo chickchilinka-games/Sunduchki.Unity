@@ -5,7 +5,8 @@
         "Zenject",
         "UniTask",
         "Newtonsoft.Json",
-        "SignalR"
+        "SignalR",
+        "Authentication"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

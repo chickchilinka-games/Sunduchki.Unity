@@ -9,6 +9,7 @@ using AppleAuth.Interfaces;
 using AppleAuth.Native;
 using Cysharp.Threading.Tasks;
 using Modules.AuthenticationSystem.Data;
+using Modules.AuthenticationSystem.Exceptions;
 using Modules.AuthenticationSystem.Interfaces;
 using Modules.AuthenticationSystem.Utils;
 using UnityEngine;
@@ -33,8 +34,16 @@ namespace Modules.AuthenticationSystem.Providers
                 tcs.TrySetResult(credential as IAppleIDCredential);
             }, error =>
             {
-                Debug.LogError($"[AppleAuth] Login failed: {error.LocalizedDescription}");
-                tcs.TrySetException(new Exception(error.LocalizedDescription));
+                if (IsUserCancellation(error))
+                {
+                    Debug.Log($"[AppleAuth] User cancelled authorization: {error.LocalizedDescription}");
+                    tcs.TrySetException(new UserCancelledException("User cancelled Apple ID authorization"));
+                }
+                else
+                {
+                    Debug.LogError($"[AppleAuth] Login failed: {error.LocalizedDescription}");
+                    tcs.TrySetException(new Exception(error.LocalizedDescription));
+                }
             });
             
             while (!tcs.Task.IsCompleted)
@@ -64,6 +73,24 @@ namespace Modules.AuthenticationSystem.Providers
                 .Build();
         }
 
+        private static bool IsUserCancellation(IAppleError error)
+        {
+            // Check common Apple ID cancellation patterns
+            var description = error.LocalizedDescription?.ToLower() ?? "";
+
+            // Common Apple ID authorization cancellation indicators:
+            // - Error code 1001 (user cancelled)
+            // - Description contains "cancel" or similar words
+            // - Description contains "user" + "cancel" variations
+            return description.Contains("cancel") ||
+                   description.Contains("cancelled") ||
+                   description.Contains("user canceled") ||
+                   description.Contains("user cancelled") ||
+                   description.Contains("1001") ||
+                   description.Contains("abort") ||
+                   description.Contains("dismissed") ||
+                   description.Contains("declined");
+        }
 
         private static string ComputeSHA256(string input)
         {

@@ -13,9 +13,9 @@ namespace Modules.AssetSystem.Editor.AssetPicker.Storage
             new ResourcesAssetRefProvider()
         };
 
-        public static IEnumerable<AssetRefEntry> Query(Type type)
+        public static List<AssetRefEntry> Query(Type type)
         {
-            return Providers.SelectMany(provider => provider.Query(type));
+            return Providers.SelectMany(provider => provider.Query(type)).ToList();
         }
 
         public static bool TryResolve(string assetRef, Type type, out UnityEngine.Object obj, out string path)

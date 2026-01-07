@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using Modules.Players.Data;
 using Modules.Players.Interfaces;
 using Modules.Players.Model;
@@ -8,15 +10,17 @@ using R3;
 
 namespace Modules.Players.Services
 {
-    public class PlayerRosterService : IPlayerRosterService
+    public class PlayerRosterService
     {
         private readonly PlayerRosterModel _model;
+        private readonly IPlayerProfileProvider _profileProvider;
         private readonly Dictionary<string, PlayerInfo> _playersById = new();
         private string _localPlayerId;
 
-        public PlayerRosterService(PlayerRosterModel model)
+        public PlayerRosterService(PlayerRosterModel model, IPlayerProfileProvider profileProvider)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
+            _profileProvider = profileProvider ?? throw new ArgumentNullException(nameof(profileProvider));
         }
 
         public ReadOnlyReactiveProperty<IReadOnlyList<PlayerInfo>> Players => _model.Players;
@@ -81,6 +85,24 @@ namespace Modules.Players.Services
         {
             _localPlayerId = playerId ?? string.Empty;
             Publish();
+        }
+
+        public async UniTask<PlayerInfo?> FetchPlayerAsync(string playerId, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(playerId))
+            {
+                return null;
+            }
+
+            var profile = await _profileProvider.GetProfileAsync(playerId, cancellationToken);
+            if (profile == null)
+            {
+                return null;
+            }
+
+            var info = new PlayerInfo(playerId, profile.Value.DisplayName, profile.Value.PhotoUrl, false);
+            Upsert(info);
+            return info;
         }
 
         private PlayerInfo ApplyLocalFlag(PlayerInfo info)

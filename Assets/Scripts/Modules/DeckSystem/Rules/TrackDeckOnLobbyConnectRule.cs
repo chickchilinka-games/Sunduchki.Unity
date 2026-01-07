@@ -56,7 +56,7 @@ namespace Modules.DeckSystem.Rules
 
         private async UniTaskVoid BeginTracking()
         {
-            var config = _lobbyState.Config;
+            var config = _lobbyState.Data;
             if (string.IsNullOrWhiteSpace(config.GameId) || string.IsNullOrWhiteSpace(config.PlayerId))
             {
                 Debug.LogWarning("[DeckSystem] Cannot start tracking deck: missing game or player id.");
@@ -80,6 +80,9 @@ namespace Modules.DeckSystem.Rules
                     config.PlayerId);
 
                 _subscription = await _signalClient.SubscribeAsync(options, _signalHandler, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {

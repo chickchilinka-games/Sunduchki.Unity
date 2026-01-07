@@ -6,7 +6,7 @@ namespace Modules.SignalR.Config
     [CreateAssetMenu(menuName = "Sunduchki/SignalR/Game Hub Config", fileName = "GameHubConfig")]
     public class GameHubConfigProviderAsset : ScriptableObject, IGameHubConfigProvider
     {
-        [SerializeField] private string _hubUrl = "http://localhost:8080/hub/game";
+        [SerializeField] private string _hubUrl = "http://localhost:5000/hub/game";
         [SerializeField] private string _accessToken = string.Empty;
 
         private Uri _cachedUri;

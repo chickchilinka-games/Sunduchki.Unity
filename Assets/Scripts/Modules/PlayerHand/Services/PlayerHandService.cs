@@ -8,9 +8,10 @@ using R3;
 
 namespace Modules.PlayerHand.Services
 {
-    public class PlayerHandService : IPlayerHandService, IPlayerHandStateWriter
+    public class PlayerHandService : IPlayerHandStateWriter
     {
         private readonly PlayerHandModel _model;
+        private readonly Subject<BonusCardUsageEvent> _bonusUsed = new();
 
         public PlayerHandService(
             PlayerHandModel model)
@@ -22,6 +23,8 @@ namespace Modules.PlayerHand.Services
         {
             return _model.GetOrCreate(playerId);
         }
+
+        public Observable<BonusCardUsageEvent> BonusUsed => _bonusUsed;
 
         public void ApplyStandardSnapshot(string playerId, IReadOnlyList<StandardCardData> cards)
         {
@@ -36,6 +39,10 @@ namespace Modules.PlayerHand.Services
             Update(playerId, state =>
             {
                 var list = state.StandardCards.ToList();
+                if (list.Any(item => SameStandard(item, card)))
+                {
+                    return state;
+                }
                 list.Add(card);
                 return new PlayerHandState(state.PlayerId, list, state.BonusCards);
             });
@@ -79,6 +86,11 @@ namespace Modules.PlayerHand.Services
 
                 return new PlayerHandState(state.PlayerId, state.StandardCards, list);
             });
+        }
+
+        public void NotifyBonusUsed(string playerId, BonusCardData card)
+        {
+            _bonusUsed.OnNext(new BonusCardUsageEvent(playerId, card.BonusType));
         }
 
         public void ClearHand(string playerId)

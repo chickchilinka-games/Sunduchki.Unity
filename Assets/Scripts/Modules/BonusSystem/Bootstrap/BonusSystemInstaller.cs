@@ -1,7 +1,7 @@
+using Modules.BonusSystem.Config;
 using Modules.BonusSystem.Interfaces;
 using Modules.BonusSystem.Rules;
 using Modules.BonusSystem.Services;
-using Modules.SignalR.Config;
 using UnityEngine;
 using Zenject;
 
@@ -13,19 +13,36 @@ namespace Modules.BonusSystem.Bootstrap
         {
             Container.BindInterfacesAndSelfTo<BonusActionService>().AsSingle();
             Container.Bind<IBonusActionClient>().To<SignalRBonusActionClient>().AsSingle();
-            Container.Bind<IGameHubConfigProvider>().FromInstance(LoadConfig()).IfNotBound();
             Container.BindInterfacesTo<TrackBonusActionsOnLobbyConnectRule>().AsSingle();
+            Container.Bind<IBonusCardRulesProvider>().FromInstance(LoadRulesProvider()).AsSingle();
         }
 
-        private IGameHubConfigProvider LoadConfig()
+        private IBonusCardRulesProvider LoadRulesProvider()
         {
-            var asset = Resources.Load<GameHubConfigProviderAsset>("SignalR/GameHubConfig");
+            var asset = Resources.Load<BonusCardRulesConfigAsset>("BonusSystem/BonusCardRules");
             if (asset != null)
             {
                 return asset;
             }
 
-            return ScriptableObject.CreateInstance<GameHubConfigProviderAsset>();
+            var fallback = ScriptableObject.CreateInstance<BonusCardRulesConfigAsset>();
+            fallback.SetDefaults(
+                new[]
+                {
+                    "AskTwice",
+                    "StealOneRandom",
+                    "PeekNext3Deck",
+                    "StealExtraOnSuccess",
+                    "SilentAsk",
+                    "DrawFromDeck"
+                },
+                new[]
+                {
+                    "LieOnGuess",
+                    "GiveOneOnGuess",
+                    "BlockGive"
+                });
+            return fallback;
         }
     }
 }

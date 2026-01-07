@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Cysharp.Threading.Tasks;
 using Features.PlayerHandSystemImpl.Factory;
-using Features.PlayerHandSystemImpl.Rules;
-using Features.PlayerHandSystemImpl.Service;
+using Features.PlayerHandSystemImpl.Presenters;
+using Features.PlayerHandSystemImpl.ViewModel;
 using R3;
 using UnityEngine;
 using UnityEngine.UI;
@@ -17,17 +19,17 @@ namespace Features.PlayerHandSystemImpl.View
         [SerializeField] private float _rowItemSpacing = 12f;
         [SerializeField] private TextAnchor _rowAlignment = TextAnchor.MiddleCenter;
 
-        private PlayerHandViewRule _viewRule;
+        private PlayerHandPresenter _presenter;
         private StandardCardViewPool _standardPool;
         private BonusCardViewPool _bonusPool;
 
-        private PlayerHandViewRuntime _runtime;
+        private PlayerHandPresenterState _state;
         private IDisposable _handChangedSubscription;
         private IDisposable _runtimeWatcher;
 
         private readonly List<RowContainer> _rows = new();
-        private readonly List<StandardCardView> _activeStandardViews = new();
-        private readonly List<BonusCardView> _activeBonusViews = new();
+        private readonly Dictionary<StandardCardViewModel, StandardCardView> _standardViews = new();
+        private readonly Dictionary<BonusCardViewModel, BonusCardView> _bonusViews = new();
 
         private class RowContainer
         {
@@ -38,11 +40,11 @@ namespace Features.PlayerHandSystemImpl.View
 
         [Inject]
         public void Construct(
-            PlayerHandViewRule viewRule,
+            PlayerHandPresenter presenter,
             StandardCardViewPool standardPool,
             BonusCardViewPool bonusPool)
         {
-            _viewRule = viewRule;
+            _presenter = presenter;
             _standardPool = standardPool;
             _bonusPool = bonusPool;
         }
@@ -54,8 +56,8 @@ namespace Features.PlayerHandSystemImpl.View
                 _rowsRoot = GetComponent<RectTransform>();
             }
 
-            _runtimeWatcher = _viewRule.Runtime.Subscribe(OnRuntimeChanged);
-            OnRuntimeChanged(_viewRule.CurrentRuntime);
+            _runtimeWatcher = _presenter.State.Subscribe(OnStateChanged);
+            OnStateChanged(_presenter.CurrentState);
         }
 
         private void OnDisable()
@@ -63,12 +65,12 @@ namespace Features.PlayerHandSystemImpl.View
             _runtimeWatcher?.Dispose();
             _runtimeWatcher = null;
 
-            OnRuntimeChanged(null);
+            OnStateChanged(null);
         }
 
-        private void OnRuntimeChanged(PlayerHandViewRuntime runtime)
+        private void OnStateChanged(PlayerHandPresenterState state)
         {
-            if (ReferenceEquals(_runtime, runtime))
+            if (ReferenceEquals(_state, state))
             {
                 return;
             }
@@ -76,40 +78,63 @@ namespace Features.PlayerHandSystemImpl.View
             _handChangedSubscription?.Dispose();
             _handChangedSubscription = null;
 
-            _runtime = runtime;
+            _state = state;
             RenderLayout();
 
-            if (_runtime != null)
+            if (_state != null)
             {
-                _handChangedSubscription = _runtime.HandChanged.Subscribe(_ => RenderLayout());
+                _handChangedSubscription = _state.HandChanged.Subscribe(_ => RenderLayout());
             }
         }
 
         private void RenderLayout()
         {
-            ReleaseAllViews();
             ResetRows();
 
-            if (_runtime == null)
+            if (_state == null)
             {
+                ReleaseAllViews();
                 return;
             }
 
             var slotIndex = 0;
+            var activeStandard = new HashSet<StandardCardViewModel>();
+            var activeBonus = new HashSet<BonusCardViewModel>();
 
-            foreach (var viewModel in _runtime.StandardCards)
+            foreach (var viewModel in _state.StandardCards)
             {
+                activeStandard.Add(viewModel);
                 var parent = GetRowTransform(slotIndex++);
-                var view = _standardPool.Spawn(parent, viewModel);
-                _activeStandardViews.Add(view);
+                if (!_standardViews.TryGetValue(viewModel, out var view))
+                {
+                    view = _standardPool.Spawn(parent, viewModel);
+                    _standardViews[viewModel] = view;
+                }
+                else
+                {
+                    view.transform.SetParent(parent, false);
+                    view.gameObject.SetActive(true);
+                }
             }
 
-            foreach (var viewModel in _runtime.BonusCards)
+            foreach (var viewModel in _state.BonusCards)
             {
+                activeBonus.Add(viewModel);
                 var parent = GetRowTransform(slotIndex++);
-                var view = _bonusPool.Spawn(parent, viewModel);
-                _activeBonusViews.Add(view);
+                if (!_bonusViews.TryGetValue(viewModel, out var view))
+                {
+                    view = _bonusPool.Spawn(parent, viewModel);
+                    _bonusViews[viewModel] = view;
+                }
+                else
+                {
+                    view.transform.SetParent(parent, false);
+                    view.gameObject.SetActive(true);
+                }
             }
+
+            RemoveMissingStandardViews(activeStandard);
+            RemoveMissingBonusViews(activeBonus);
         }
 
         private void ResetRows()
@@ -152,8 +177,8 @@ namespace Features.PlayerHandSystemImpl.View
             var layout = go.GetComponent<HorizontalLayoutGroup>();
             layout.spacing = _rowItemSpacing;
             layout.childAlignment = _rowAlignment;
-            layout.childControlWidth = false;
-            layout.childControlHeight = false;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
 
@@ -167,17 +192,78 @@ namespace Features.PlayerHandSystemImpl.View
 
         private void ReleaseAllViews()
         {
-            foreach (var view in _activeStandardViews)
+            foreach (var view in _standardViews.Values)
             {
                 _standardPool.Despawn(view);
             }
-            _activeStandardViews.Clear();
+            _standardViews.Clear();
 
-            foreach (var view in _activeBonusViews)
+            foreach (var view in _bonusViews.Values)
             {
                 _bonusPool.Despawn(view);
             }
-            _activeBonusViews.Clear();
+            _bonusViews.Clear();
+        }
+
+        private void RemoveMissingStandardViews(IReadOnlyCollection<StandardCardViewModel> active)
+        {
+            var toRemove = new List<StandardCardViewModel>();
+            foreach (var entry in _standardViews)
+            {
+                if (!active.Contains(entry.Key))
+                {
+                    toRemove.Add(entry.Key);
+                }
+            }
+
+            foreach (var viewModel in toRemove)
+            {
+                if (_standardViews.TryGetValue(viewModel, out var view))
+                {
+                    _standardViews.Remove(viewModel);
+                    AnimateAndDespawnStandard(view).Forget();
+                }
+            }
+        }
+
+        private async UniTaskVoid AnimateAndDespawnStandard(StandardCardView view)
+        {
+            if (view == null)
+            {
+                return;
+            }
+
+            if (view.HasPendingSetComplete)
+            {
+                await view.PlaySetCompleteAnimationAsync();
+            }
+            else
+            {
+                await view.PlayTransferRemovalAnimationAsync();
+            }
+
+            _standardPool.Despawn(view);
+        }
+
+        private void RemoveMissingBonusViews(IReadOnlyCollection<BonusCardViewModel> active)
+        {
+            var toRemove = new List<BonusCardViewModel>();
+            foreach (var entry in _bonusViews)
+            {
+                if (!active.Contains(entry.Key))
+                {
+                    toRemove.Add(entry.Key);
+                }
+            }
+
+            foreach (var viewModel in toRemove)
+            {
+                if (_bonusViews.TryGetValue(viewModel, out var view))
+                {
+                    _bonusViews.Remove(viewModel);
+                    _bonusPool.Despawn(view);
+                }
+            }
         }
     }
 }

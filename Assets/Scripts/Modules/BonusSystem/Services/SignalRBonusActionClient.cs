@@ -35,19 +35,19 @@ namespace Modules.BonusSystem.Services
 
         public async UniTask DisconnectAsync()
         {
-            if (_connection == null)
+            var connection = Interlocked.Exchange(ref _connection, null);
+            if (connection == null)
             {
                 return;
             }
 
             try
             {
-                await _connection.StopAsync();
+                await connection.StopAsync();
             }
             finally
             {
-                _connection.Dispose();
-                _connection = null;
+                connection.Dispose();
             }
         }
 

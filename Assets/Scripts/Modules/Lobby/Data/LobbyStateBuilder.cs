@@ -7,7 +7,8 @@ namespace Modules.Lobby.Data
         public string ErrorMessage { get; set; }
         public int? DeckCount { get; set; }
         public int? TotalCards { get; set; }
-        public object Result { get; set; }
+        public GameEndedResultDto Result { get; set; }
+        public string GameEndedReason { get; set; }
 
         public LobbyStateBuilder(LobbyState origin)
         {
@@ -17,11 +18,12 @@ namespace Modules.Lobby.Data
             DeckCount = origin.DeckCount;
             TotalCards = origin.TotalCards;
             Result = origin.Result;
+            GameEndedReason = origin.GameEndedReason;
         }
 
         public LobbyState Build()
         {
-            return new LobbyState(Status, Started, ErrorMessage, DeckCount, TotalCards, Result);
+            return new LobbyState(Status, Started, ErrorMessage, DeckCount, TotalCards, Result, GameEndedReason);
         }
     }
 }

@@ -56,7 +56,7 @@ namespace Modules.DefenseDecisionSystem.Rules
 
         private async UniTaskVoid BeginTracking()
         {
-            var config = _lobbyState.Config;
+            var config = _lobbyState.Data;
             if (string.IsNullOrWhiteSpace(config.GameId) || string.IsNullOrWhiteSpace(config.PlayerId))
             {
                 Debug.LogWarning("[DefenseDecision] Cannot track defense decisions without lobby identifiers.");
@@ -77,6 +77,9 @@ namespace Modules.DefenseDecisionSystem.Rules
                     config.PlayerId);
 
                 await _client.ConnectAsync(options, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {

@@ -1,7 +1,7 @@
 using System;
 using Cysharp.Threading.Tasks;
-using ICVR.Window;
 using ICVR.Window.Abstract;
+using Features.AppLifecycle.Services;
 using Modules.Lobby.Data;
 using Modules.Lobby.Services;
 using TMPro;
@@ -18,27 +18,20 @@ namespace Features.LobbyImpl.View
     {
         [Header("UI")]
         [SerializeField] private TMP_InputField _gameIdInput;
-        [SerializeField] private TMP_InputField _playerNameInput;
         [SerializeField] private Button _joinButton;
-
-        [Header("Auth")]
-        [SerializeField, TextArea] private string _authToken = string.Empty;
-
-        [Header("Windows")]
-        [SerializeField] private string _lobbyTemplateId = "DefaultWindow";
-        [SerializeField] private bool _openLobbyOnSuccess = true;
+        [SerializeField] private Button _closeButton;
 
         private LobbyService _lobbyService;
-        private WindowSystem _windowSystem;
+        private LobbyFlowService _lobbyFlowService;
         private bool _isJoining;
 
         public override string Title => "Join Game";
 
         [Inject]
-        public void Construct(LobbyService lobbyService, WindowSystem windowSystem)
+        public void Construct(LobbyService lobbyService, LobbyFlowService lobbyFlowService)
         {
             _lobbyService = lobbyService ?? throw new ArgumentNullException(nameof(lobbyService));
-            _windowSystem = windowSystem;
+            _lobbyFlowService = lobbyFlowService ?? throw new ArgumentNullException(nameof(lobbyFlowService));
         }
 
         private void Awake()
@@ -47,6 +40,11 @@ namespace Features.LobbyImpl.View
             {
                 _joinButton.onClick.AddListener(OnJoinClicked);
             }
+
+            if (_closeButton != null)
+            {
+                _closeButton.onClick.AddListener(Close);
+            }
         }
 
         private void OnDestroy()
@@ -54,6 +52,11 @@ namespace Features.LobbyImpl.View
             if (_joinButton != null)
             {
                 _joinButton.onClick.RemoveListener(OnJoinClicked);
+            }
+
+            if (_closeButton != null)
+            {
+                _closeButton.onClick.RemoveListener(Close);
             }
         }
 
@@ -76,27 +79,15 @@ namespace Features.LobbyImpl.View
                 return;
             }
 
-            var token = ResolveAuthToken();
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                Debug.LogWarning("[JoinGame] Auth token is required.");
-                return;
-            }
-
-            var playerName = _playerNameInput != null ? _playerNameInput.text?.Trim() : null;
-
             _isJoining = true;
             SetJoinButtonInteractable(false);
 
             try
             {
-                var options = new JoinGameOptions(token, playerName);
+                var options = new JoinGameOptions();
                 await _lobbyService.JoinGameAsync(gameId, options, this.GetCancellationTokenOnDestroy());
 
-                if (_openLobbyOnSuccess && _windowSystem != null && !string.IsNullOrWhiteSpace(_lobbyTemplateId))
-                {
-                    await _windowSystem.ShowWindowAsync<LobbyContent>(_lobbyTemplateId);
-                }
+                _lobbyFlowService.RequestEnter();
 
                 Close();
             }
@@ -110,12 +101,6 @@ namespace Features.LobbyImpl.View
                 SetJoinButtonInteractable(true);
             }
         }
-
-        private string ResolveAuthToken()
-        {
-            return _authToken?.Trim();
-        }
-
         private void SetJoinButtonInteractable(bool canInteract)
         {
             if (_joinButton != null)

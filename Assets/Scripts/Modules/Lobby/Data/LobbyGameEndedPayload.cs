@@ -1,12 +1,14 @@
 namespace Modules.Lobby.Data
 {
-    public struct LobbyGameEndedPayload
+    public readonly struct LobbyGameEndedPayload
     {
-        public object Result { get; }
+        public GameEndedResultDto Result { get; }
+        public string Reason { get; }
 
-        public LobbyGameEndedPayload(object result)
+        public LobbyGameEndedPayload(GameEndedResultDto result, string reason)
         {
             Result = result;
+            Reason = reason;
         }
     }
 }

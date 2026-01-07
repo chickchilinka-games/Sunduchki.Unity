@@ -1,6 +1,10 @@
-using Modules.Lobby.Data;
+using System;
+using Cysharp.Threading.Tasks;
+using Modules.Players.Services;
+using R3;
 using TMPro;
 using UnityEngine;
+using Zenject;
 
 namespace Features.LobbyImpl.View
 {
@@ -11,22 +15,39 @@ namespace Features.LobbyImpl.View
     {
         [SerializeField] private TMP_Text _nameLabel;
         [SerializeField] private TMP_Text _chestCountLabel;
-        [SerializeField] private string _emptyName = "—";
+        [SerializeField] private string _emptyName = "--";
 
         public string CurrentPlayerId { get; private set; }
+        private PlayerRosterService _rosterService;
+        private IDisposable _subscription;
 
-        public void BindPlayer(LobbyPlayerInfo? info)
+        [Inject]
+        public void Construct(PlayerRosterService rosterService)
         {
-            if (info.HasValue)
+            _rosterService = rosterService ?? throw new ArgumentNullException(nameof(rosterService));
+        }
+
+        private void OnEnable()
+        {
+            if (_rosterService == null)
             {
-                CurrentPlayerId = info.Value.Id;
-                SetName(string.IsNullOrWhiteSpace(info.Value.Name) ? _emptyName : info.Value.Name);
+                return;
             }
-            else
-            {
-                CurrentPlayerId = null;
-                SetName(_emptyName);
-            }
+
+            _subscription = _rosterService.Players
+                .Subscribe(_ => UpdateNameFromRoster());
+        }
+
+        private void OnDisable()
+        {
+            _subscription?.Dispose();
+            _subscription = null;
+        }
+
+        public void BindPlayerId(string playerId)
+        {
+            CurrentPlayerId = string.IsNullOrWhiteSpace(playerId) ? null : playerId;
+            UpdateNameFromRoster();
 
             // Reset chest count display until we receive a specific value for this slot.
             SetChestCount(null);
@@ -48,6 +69,33 @@ namespace Features.LobbyImpl.View
             if (_nameLabel != null)
             {
                 _nameLabel.text = value ?? _emptyName;
+            }
+        }
+
+        private void UpdateNameFromRoster()
+        {
+            if (_rosterService == null)
+            {
+                SetName(_emptyName);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(CurrentPlayerId))
+            {
+                SetName(_emptyName);
+                return;
+            }
+
+            if (_rosterService.TryGetPlayer(CurrentPlayerId, out var info) &&
+                !string.IsNullOrWhiteSpace(info.Name))
+            {
+                SetName(info.Name);
+            }
+            else
+            {
+                _rosterService.FetchPlayerAsync(CurrentPlayerId)
+                    .ContinueWith(player => SetName(player != null ? player.Value.Name : _emptyName))
+                    .Forget();
             }
         }
     }

@@ -7,11 +7,12 @@ namespace Modules.AuthenticationSystem.Data
     [Serializable]
     public sealed class UserContext
     {
-        internal UserContext(string userId, string username, string role, List<LinkageInfo> linkedProviders)
+        internal UserContext(string userId, string username, string role, string jwtToken, List<LinkageInfo> linkedProviders)
         {
             UserId = userId;
             Username = username;
             Role = role;
+            JwtToken = jwtToken;
             LinkedProviders = linkedProviders ??
                               new List<LinkageInfo>(); 
         }
@@ -21,6 +22,8 @@ namespace Modules.AuthenticationSystem.Data
         public string Username { get; }
 
         public string Role { get; }
+
+        public string JwtToken { get; }
 
         public IReadOnlyList<LinkageInfo> LinkedProviders { get; }
         

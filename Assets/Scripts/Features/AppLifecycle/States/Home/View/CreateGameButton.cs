@@ -22,7 +22,7 @@ namespace Features.AppLifecycle.States.Home.View
             try
             {
                 var game = await _lobbyService.CreateGameAsync(new CreateGameOptions(DeckType.Short36, 4, "classic"));
-                await _lobbyService.JoinGameAsync(game.GameId, new JoinGameOptions("", "Almaz"));
+                await _lobbyService.JoinGameAsync(game.GameId, new JoinGameOptions());
             }
             catch (Exception e)
             {

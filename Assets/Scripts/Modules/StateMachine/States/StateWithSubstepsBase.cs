@@ -4,6 +4,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.StateMachine.Substeps;
 using UniState;
+using UnityEngine;
 
 namespace Modules.StateMachine.States
 {
@@ -18,10 +19,11 @@ namespace Modules.StateMachine.States
         {
             foreach (var substep in GetExecutionSubsteps())
             {
+                Debug.Log($"[{GetType().Name}] Executing step: {substep.GetType().Name}");
                 var success = await substep.ExecuteAsync(token);
                 if (!success)
                 {
-                    return await OnExecutionSubstepFailure(token);
+                    return await OnExecutionSubstepFailure(token, substep);
                 }
             }
             
@@ -32,10 +34,11 @@ namespace Modules.StateMachine.States
         {
             foreach (var substep in GetExitSubsteps())
             {
+                Debug.Log($"[{GetType().Name}] Executing exit step: {substep.GetType().Name}");
                 var success = await substep.ExecuteAsync(token);
                 if (!success)
                 {
-                    await OnExitSubstepFailure(token);
+                    await OnExitSubstepFailure(token, substep);
                 }
             }
         }
@@ -46,12 +49,12 @@ namespace Modules.StateMachine.States
         
         protected abstract UniTask<StateTransitionInfo> GetNextStateAsync(CancellationToken token);
         
-        protected virtual UniTask<StateTransitionInfo> OnExecutionSubstepFailure(CancellationToken token)
+        protected virtual UniTask<StateTransitionInfo> OnExecutionSubstepFailure(CancellationToken token, ISubstep substep)
         {
             return UniTask.FromResult(Transition.GoToExit());
         }
         
-        protected virtual UniTask OnExitSubstepFailure(CancellationToken token)
+        protected virtual UniTask OnExitSubstepFailure(CancellationToken token, ISubstep substep)
         {
             throw new InvalidOperationException("Sub-step execution on state exit failed.");
         }

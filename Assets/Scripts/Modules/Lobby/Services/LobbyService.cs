@@ -15,15 +15,18 @@ namespace Modules.Lobby.Services
     {
         private readonly ILobbyApiClient _apiClient;
         private readonly ILobbySignalRClient _signalRClient;
+        private readonly ITokenProvider _tokenProvider;
         private readonly LobbyStateContext _state;
 
         public LobbyService(
             ILobbyApiClient apiClient,
             ILobbySignalRClient signalRClient,
+            ITokenProvider tokenProvider,
             LobbyStateContext state)
         {
             _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
             _signalRClient = signalRClient ?? throw new ArgumentNullException(nameof(signalRClient));
+            _tokenProvider = tokenProvider;
             _state = state ?? throw new ArgumentNullException(nameof(state));
         }
 
@@ -34,6 +37,7 @@ namespace Modules.Lobby.Services
         public Observable<IReadOnlyList<LobbyPlayerInfo>> ReadyToStart => _state.ReadyToStart;
         public Observable<LobbyGameStartedPayload> GameStarted => _state.GameStarted;
         public Observable<LobbyGameEndedPayload> GameEnded => _state.GameEnded;
+        public Observable<LobbyChestUpdatedPayload> ChestUpdated => _state.ChestUpdated;
 
 
         public LobbyPlayerInfo GetLocalPlayer()
@@ -41,9 +45,9 @@ namespace Modules.Lobby.Services
             return _state.Players.CurrentValue.FirstOrDefault(player=>player.IsLocal);    
         }
         
-        public void UpdateConfig(LobbyConfig config)
+        public void UpdateData(LobbyData data)
         {
-            _state.UpdateConfig(config);
+            _state.UpdateConfig(data);
         }
 
         public void ApplyInitialPlayers(IEnumerable<LobbyPlayerInfo> players)
@@ -73,25 +77,24 @@ namespace Modules.Lobby.Services
             try
             {
                 var result = await _apiClient.JoinGameAsync(gameId, options, cancellationToken);
-                UpdateConfig(new LobbyConfig
+                UpdateData(new LobbyData
                 {
                     GameId = gameId,
                     PlayerId = result.PlayerId,
-                    PlayerName = result.PlayerName,
                     DeckCount = result.DeckCount,
                     TotalCards = result.TotalCards
                 });
 
                 var roster = new List<LobbyPlayerInfo>
                 {
-                    _state.CreatePlayerInfo(result.PlayerId, result.PlayerName, true)
+                    _state.CreatePlayerInfo(result.PlayerId, true)
                 };
 
                 if (result.Players != null)
                 {
                     foreach (var player in result.Players)
                     {
-                        roster.Add(_state.CreatePlayerInfo(player.Id, player.Name, false));
+                        roster.Add(_state.CreatePlayerInfo(player.Id, false));
                     }
                 }
 
@@ -107,8 +110,16 @@ namespace Modules.Lobby.Services
             }
         }
 
-        public async UniTask ConnectAsync(LobbySignalRConnectionOptions options, CancellationToken cancellationToken = default)
+        public async UniTask ConnectAsync(Uri hubUri, CancellationToken cancellationToken = default)
         {
+            if (hubUri == null)
+            {
+                throw new ArgumentException("Hub URI must be provided.", nameof(hubUri));
+            }
+
+            var accessToken = _tokenProvider?.GetToken() ?? string.Empty;
+            var options = new LobbySignalRConnectionOptions(hubUri, accessToken);
+
             EnsureConfigured();
 
             if (_state.IsConnected)
@@ -121,7 +132,7 @@ namespace Modules.Lobby.Services
             {
                 await _signalRClient.ConnectAsync(options, _state, cancellationToken);
                 await _signalRClient.JoinGameAsync(
-                    new LobbySignalRJoinPayload(_state.Config.GameId, _state.Config.PlayerId),
+                    new LobbySignalRJoinPayload(_state.Data.GameId, _state.Data.PlayerId),
                     cancellationToken);
 
                 _state.SetConnected(true);
@@ -137,13 +148,13 @@ namespace Modules.Lobby.Services
 
         public async UniTask StartGameAsync(CancellationToken cancellationToken = default)
         {
-            if (_state.Config.IsHost != true)
+            if (_state.Data.IsHost != true)
             {
                 Debug.LogWarning("[Lobby] StartGameAsync called by non-host client.");
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(_state.Config.GameId))
+            if (string.IsNullOrWhiteSpace(_state.Data.GameId))
             {
                 Debug.LogWarning("[Lobby] StartGameAsync requires configured GameId.");
                 return;
@@ -152,7 +163,7 @@ namespace Modules.Lobby.Services
             _state.MutateState(state => state.WithStatus(LobbyStatus.Starting).ClearError());
             try
             {
-                await _apiClient.StartGameAsync(_state.Config.GameId, cancellationToken);
+                await _apiClient.StartGameAsync(_state.Data.GameId, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -170,6 +181,7 @@ namespace Modules.Lobby.Services
 
             try
             {
+                await LeaveGameAsync(cancellationToken);
                 await _signalRClient.DisconnectAsync(cancellationToken);
             }
             finally
@@ -180,13 +192,35 @@ namespace Modules.Lobby.Services
                     .With(builder =>
                     {
                         builder.Result = null;
+                        builder.GameEndedReason = null;
                     }));
+            }
+        }
+
+        private async UniTask LeaveGameAsync(CancellationToken cancellationToken)
+        {
+            var gameId = _state.Data.GameId;
+            var playerId = _state.Data.PlayerId;
+            if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(playerId))
+            {
+                return;
+            }
+
+            try
+            {
+                await _signalRClient.LeaveGameAsync(
+                    new LobbySignalRLeavePayload(gameId, playerId),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Lobby] LeaveGame failed: {ex.Message}");
             }
         }
 
         public void SetHost(bool isHost)
         {
-            UpdateConfig(new LobbyConfig { IsHost = isHost });
+            UpdateData(new LobbyData { IsHost = isHost });
         }
 
         private void HandleError(string context, Exception exception, LobbyStatus fallbackStatus = LobbyStatus.Idle)
@@ -199,7 +233,7 @@ namespace Modules.Lobby.Services
 
         private void EnsureConfigured()
         {
-            if (string.IsNullOrWhiteSpace(_state.Config.GameId) || string.IsNullOrWhiteSpace(_state.Config.PlayerId))
+            if (string.IsNullOrWhiteSpace(_state.Data.GameId) || string.IsNullOrWhiteSpace(_state.Data.PlayerId))
             {
                 throw new InvalidOperationException("Lobby configuration is incomplete. GameId and PlayerId are required.");
             }

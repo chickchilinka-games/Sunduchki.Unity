@@ -1,25 +1,26 @@
+using System;
+using System.Collections.Generic;
+
 namespace Modules.DeckSystem.Data
 {
     public readonly struct DeckPeekInfo
     {
-        public static DeckPeekInfo None { get; } = new DeckPeekInfo(false, default, string.Empty, string.Empty);
+        public static DeckPeekInfo None { get; } = new DeckPeekInfo(false, Array.Empty<DeckPeekCardData>(), string.Empty);
 
         public bool HasValue { get; }
-        public DeckCardData Card { get; }
         public string PlayerId { get; }
-        public string BonusType { get; }
+        public IReadOnlyList<DeckPeekCardData> Cards { get; }
 
-        private DeckPeekInfo(bool hasValue, DeckCardData card, string playerId, string bonusType)
+        private DeckPeekInfo(bool hasValue, IReadOnlyList<DeckPeekCardData> cards, string playerId)
         {
             HasValue = hasValue;
-            Card = card;
             PlayerId = playerId ?? string.Empty;
-            BonusType = bonusType ?? string.Empty;
+            Cards = cards ?? Array.Empty<DeckPeekCardData>();
         }
 
-        public static DeckPeekInfo Create(DeckCardData card, string playerId, string bonusType)
+        public static DeckPeekInfo Create(IReadOnlyList<DeckPeekCardData> cards, string playerId)
         {
-            return new DeckPeekInfo(true, card, playerId, bonusType);
+            return new DeckPeekInfo(true, cards, playerId);
         }
     }
 }

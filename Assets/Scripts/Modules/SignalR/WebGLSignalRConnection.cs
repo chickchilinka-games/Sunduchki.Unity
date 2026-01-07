@@ -16,6 +16,9 @@ namespace Modules.SignalR
         private UniTaskCompletionSource _startTcs;
         private UniTaskCompletionSource _stopTcs;
         private bool _disposed;
+        private Action<Exception> _closedHandler;
+        private Action<string> _reconnectedHandler;
+        private bool _hasStarted;
 
         private readonly Dictionary<string, Action<string>> _rawHandlers = new();
         private readonly Dictionary<string, UniTaskCompletionSource> _pendingInvokes = new();
@@ -102,6 +105,16 @@ namespace Modules.SignalR
             });
         }
 
+        public void OnClosed(Action<Exception> handler)
+        {
+            _closedHandler = handler;
+        }
+
+        public void OnReconnected(Action<string> handler)
+        {
+            _reconnectedHandler = handler;
+        }
+
         public void RemoveHandler(string methodName)
         {
             if (string.IsNullOrWhiteSpace(methodName))
@@ -138,6 +151,14 @@ namespace Modules.SignalR
             {
                 case "started":
                     _startTcs?.TrySetResult();
+                    if (_hasStarted)
+                    {
+                        _reconnectedHandler?.Invoke(null);
+                    }
+                    else
+                    {
+                        _hasStarted = true;
+                    }
                     break;
                 case "startFailed":
                     _startTcs?.TrySetException(new InvalidOperationException(envelope.Error ?? "SignalR start failed."));
@@ -166,6 +187,13 @@ namespace Modules.SignalR
                 case "stopped":
                 case "closed":
                     _stopTcs?.TrySetResult();
+                    if (envelope.Type == "closed" && _closedHandler != null)
+                    {
+                        var error = string.IsNullOrWhiteSpace(envelope.Error)
+                            ? null
+                            : new InvalidOperationException(envelope.Error);
+                        _closedHandler.Invoke(error);
+                    }
                     CleanupPending(new InvalidOperationException(envelope.Error ?? "Connection closed."));
                     _host.RemoveConnection(_connectionId);
                     break;
@@ -286,6 +314,8 @@ namespace Modules.SignalR
         public void On<T1, T2>(string methodName, Action<T1, T2> handler) => throw new PlatformNotSupportedException();
         public void On<T1, T2, T3>(string methodName, Action<T1, T2, T3> handler) => throw new PlatformNotSupportedException();
         public void On<T1, T2, T3, T4>(string methodName, Action<T1, T2, T3, T4> handler) => throw new PlatformNotSupportedException();
+        public void OnClosed(Action<Exception> handler) => throw new PlatformNotSupportedException();
+        public void OnReconnected(Action<string> handler) => throw new PlatformNotSupportedException();
         public void RemoveHandler(string methodName) => throw new PlatformNotSupportedException();
         public UniTask StopAsync(CancellationToken cancellationToken = default) => UniTask.CompletedTask;
         public void Dispose() { }

@@ -42,9 +42,10 @@ namespace Modules.PlayerHand.Services
 
         private static void RegisterHandlers(ISignalRConnection connection, IPlayerHandSignalListener listener)
         {
-            connection.On<string, HandCardDto[]>("PlayerHandUpdated", (playerId, cards) =>
+            connection.On<PlayerHandUpdatedDto>("PlayerHandUpdated", payload =>
             {
                 var mapped = new List<StandardCardData>();
+                var cards = payload?.Cards;
                 if (cards != null)
                 {
                     foreach (var dto in cards)
@@ -53,22 +54,38 @@ namespace Modules.PlayerHand.Services
                     }
                 }
 
+                var playerId = payload?.PlayerId ?? string.Empty;
                 listener.OnStandardSnapshot(playerId, mapped);
             });
 
-            connection.On<string, string, string>("DrewStandardFromDeck", (playerId, rank, suit) =>
+            connection.On<StandardCardDrawnDto>("DrewStandardFromDeck", payload =>
             {
-                listener.OnStandardCardAdded(playerId, new StandardCardData(rank, suit));
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnStandardCardAdded(payload.PlayerId, new StandardCardData(payload.Rank, payload.Suit));
             });
 
-            connection.On<string, string>("BonusCardAddedToHand", (playerId, bonusType) =>
+            connection.On<BonusCardChangedDto>("BonusCardAddedToHand", payload =>
             {
-                listener.OnBonusCardAdded(playerId, new BonusCardData(bonusType));
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnBonusCardAdded(payload.PlayerId, new BonusCardData(payload.BonusType));
             });
 
-            connection.On<string, string>("BonusCardRemovedFromHand", (playerId, bonusType) =>
+            connection.On<BonusCardChangedDto>("BonusCardRemovedFromHand", payload =>
             {
-                listener.OnBonusCardRemoved(playerId, new BonusCardData(bonusType));
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnBonusCardRemoved(payload.PlayerId, new BonusCardData(payload.BonusType));
             });
         }
 
@@ -106,6 +123,28 @@ namespace Modules.PlayerHand.Services
         {
             public string Rank { get; set; }
             public string Suit { get; set; }
+        }
+
+        [Serializable]
+        private sealed class PlayerHandUpdatedDto
+        {
+            public string PlayerId { get; set; }
+            public HandCardDto[] Cards { get; set; }
+        }
+
+        [Serializable]
+        private sealed class StandardCardDrawnDto
+        {
+            public string PlayerId { get; set; }
+            public string Rank { get; set; }
+            public string Suit { get; set; }
+        }
+
+        [Serializable]
+        private sealed class BonusCardChangedDto
+        {
+            public string PlayerId { get; set; }
+            public string BonusType { get; set; }
         }
     }
 }

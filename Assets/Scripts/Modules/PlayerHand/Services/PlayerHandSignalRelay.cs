@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Modules.PlayerHand.Data;
 using Modules.PlayerHand.Interfaces;
+using UnityEngine;
 
 namespace Modules.PlayerHand.Services
 {
@@ -15,11 +16,14 @@ namespace Modules.PlayerHand.Services
 
         public void OnStandardSnapshot(string playerId, IReadOnlyList<StandardCardData> cards)
         {
+            var count = cards?.Count ?? 0;
+            Debug.Log($"[PlayerHand] Received standard hand snapshot: {count} cards for {playerId}.");
             _stateWriter.ApplyStandardSnapshot(playerId, cards);
         }
 
         public void OnStandardCardAdded(string playerId, StandardCardData card)
         {
+            Debug.Log($"[PlayerHand] Standard card added for {playerId}: {card.Rank} {card.Suit}.");
             _stateWriter.AddStandardCard(playerId, card);
         }
 
@@ -30,11 +34,13 @@ namespace Modules.PlayerHand.Services
 
         public void OnBonusCardAdded(string playerId, BonusCardData card)
         {
+            Debug.Log($"[PlayerHand] Bonus card added for {playerId}: {card.BonusType}.");
             _stateWriter.AddBonusCard(playerId, card);
         }
 
         public void OnBonusCardRemoved(string playerId, BonusCardData card)
         {
+            _stateWriter.NotifyBonusUsed(playerId, card);
             _stateWriter.RemoveBonusCard(playerId, card);
         }
 

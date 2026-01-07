@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Modules.DeckSystem.Data;
 
 namespace Modules.DeckSystem.Interfaces
@@ -10,6 +11,8 @@ namespace Modules.DeckSystem.Interfaces
 
         void OnBonusCardDrawn(string playerId, string bonusType);
 
-        void OnDeckPeeked(string playerId, DeckCardData card, string bonusType);
+        void OnDeckPeeked(string playerId, IReadOnlyList<DeckPeekCardData> cards);
+
+        void OnDeckAdjusted(int delta);
     }
 }

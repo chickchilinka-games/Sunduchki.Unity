@@ -6,6 +6,7 @@ using Modules.Lobby.Model;
 using Modules.SignalR.Config;
 using Modules.TurnSystem.Data;
 using Modules.TurnSystem.Interfaces;
+using Modules.TurnSystem.Services;
 using R3;
 using Zenject;
 
@@ -14,7 +15,7 @@ namespace Modules.TurnSystem.Rules
     public class TrackTurnOnLobbyConnectRule : IInitializable, IDisposable
     {
         private readonly LobbyStateContext _lobbyState;
-        private readonly ITurnSequenceService _turnService;
+        private readonly TurnSequenceService _turnService;
         private readonly ITurnSignalClient _signalClient;
         private readonly IGameHubConfigProvider _configProvider;
         private readonly CompositeDisposable _disposables = new();
@@ -23,7 +24,7 @@ namespace Modules.TurnSystem.Rules
 
         public TrackTurnOnLobbyConnectRule(
             LobbyStateContext lobbyState,
-            ITurnSequenceService turnService,
+            TurnSequenceService turnService,
             ITurnSignalClient signalClient,
             IGameHubConfigProvider configProvider)
         {
@@ -59,7 +60,7 @@ namespace Modules.TurnSystem.Rules
 
         private async UniTaskVoid BeginTracking()
         {
-            var lobbyConfig = _lobbyState.Config;
+            var lobbyConfig = _lobbyState.Data;
             if (string.IsNullOrWhiteSpace(lobbyConfig.GameId) || string.IsNullOrWhiteSpace(lobbyConfig.PlayerId))
             {
                 return;
@@ -79,6 +80,9 @@ namespace Modules.TurnSystem.Rules
                     lobbyConfig.PlayerId);
 
                 _subscription = await _signalClient.SubscribeAsync(options, OnTurnAdvanced, _trackingCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {

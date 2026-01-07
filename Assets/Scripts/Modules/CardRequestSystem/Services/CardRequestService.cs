@@ -6,7 +6,7 @@ using R3;
 
 namespace Modules.CardRequestSystem.Services
 {
-    public class CardRequestService : ICardRequestService, ICardRequestStateWriter
+    internal class CardRequestService : ICardRequestService, ICardRequestStateWriter
     {
         private readonly CardRequestModel _model;
 

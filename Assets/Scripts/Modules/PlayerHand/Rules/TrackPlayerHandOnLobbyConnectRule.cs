@@ -55,7 +55,7 @@ namespace Modules.PlayerHand.Rules
 
         private async UniTaskVoid BeginTracking()
         {
-            var config = _lobbyState.Config;
+            var config = _lobbyState.Data;
             if (string.IsNullOrWhiteSpace(config.GameId) || string.IsNullOrWhiteSpace(config.PlayerId))
             {
                 return;
@@ -73,6 +73,10 @@ namespace Modules.PlayerHand.Rules
                     config.PlayerId);
 
                 _subscription = await _signalClient.SubscribeAsync(options, _signalHandler, _cts.Token);
+                UnityEngine.Debug.Log($"[PlayerHand] Subscribed to hand updates for {config.PlayerId}.");
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {

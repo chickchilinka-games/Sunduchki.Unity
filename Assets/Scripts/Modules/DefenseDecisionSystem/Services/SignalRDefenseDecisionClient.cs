@@ -34,6 +34,10 @@ namespace Modules.DefenseDecisionSystem.Services
 
                 _connection = connection;
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await DisconnectAsync();
+            }
             catch (Exception ex)
             {
                 Debug.LogError($"[DefenseDecision] Failed to connect: {ex.Message}");
@@ -61,19 +65,19 @@ namespace Modules.DefenseDecisionSystem.Services
 
         public async UniTask DisconnectAsync()
         {
-            if (_connection == null)
+            var connection = Interlocked.Exchange(ref _connection, null);
+            if (connection == null)
             {
                 return;
             }
 
             try
             {
-                await _connection.StopAsync();
+                await connection.StopAsync();
             }
             finally
             {
-                _connection.Dispose();
-                _connection = null;
+                connection.Dispose();
             }
         }
 

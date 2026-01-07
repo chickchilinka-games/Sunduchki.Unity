@@ -1,0 +1,14 @@
+{
+    "category": "Config",
+    "displayName": "CI Tools Config",
+    "name": "io.marrowmachine.tools.cicd-config",
+    "unity": "2018.3",
+    "version": "1.0.1",
+    "keywords": [
+        "tools",
+        "unity",
+        "cicd"
+    ],
+    "description": "Configuration module for CI/CD tools",
+    "type": "module"
+}

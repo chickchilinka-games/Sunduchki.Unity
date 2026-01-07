@@ -1,0 +1,20 @@
+{
+    "name": "Profiles",
+    "rootNamespace": "",
+    "references": [
+        "Zenject",
+        "UniTask",
+        "Newtonsoft.Json",
+        "Authentication",
+        "R3"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

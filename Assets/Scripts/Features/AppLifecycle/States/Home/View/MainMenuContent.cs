@@ -1,6 +1,8 @@
 using System;
 using Cysharp.Threading.Tasks;
+using Features.AppLifecycle.Services;
 using Features.LobbyImpl.View;
+using Features.WindowSystemImpl.Templates;
 using ICVR.Window;
 using ICVR.Window.Abstract;
 using Modules.Lobby.Data;
@@ -26,20 +28,20 @@ namespace Features.AppLifecycle.States.Home.View
         [SerializeField] private string _gameMode = "classic";
 
         [Header("Windows")]
-        [SerializeField] private string _joinGameTemplateId = "DefaultWindow";
-        [SerializeField] private string _lobbyTemplateId = "DefaultWindow";
         [SerializeField] private bool _openLobbyAfterCreate = true;
 
         private LobbyService _lobbyService;
+        private LobbyFlowService _lobbyFlowService;
         private WindowSystem _windowSystem;
         private bool _isCreating;
 
         public override string Title => "Main Menu";
 
         [Inject]
-        public void Construct(LobbyService lobbyService, WindowSystem windowSystem)
+        public void Construct(LobbyService lobbyService, LobbyFlowService lobbyFlowService, WindowSystem windowSystem)
         {
             _lobbyService = lobbyService ?? throw new ArgumentNullException(nameof(lobbyService));
+            _lobbyFlowService = lobbyFlowService ?? throw new ArgumentNullException(nameof(lobbyFlowService));
             _windowSystem = windowSystem;
         }
 
@@ -71,13 +73,13 @@ namespace Features.AppLifecycle.States.Home.View
 
         private void OnJoinClicked()
         {
-            if (_windowSystem == null || string.IsNullOrWhiteSpace(_joinGameTemplateId))
+            if (_windowSystem == null)
             {
                 Debug.LogWarning("[MainMenu] Join window template is not configured.");
                 return;
             }
 
-            _windowSystem.ShowWindowAsync<JoinGameContent>(_joinGameTemplateId).Forget();
+            _windowSystem.ShowWindowAsync<JoinGameContent>(nameof(BlockerWindowTemplate)).Forget();
         }
 
         private void OnCreateClicked()
@@ -100,18 +102,20 @@ namespace Features.AppLifecycle.States.Home.View
                 var options = new CreateGameOptions(
                     _deckType,
                     Mathf.Max(1, _startingHand),
-                    string.IsNullOrWhiteSpace(_gameMode) ? "classic" : _gameMode.Trim());
+                    string.IsNullOrWhiteSpace(_gameMode) ? "sprint1" : _gameMode.Trim());
 
                 var result = await _lobbyService.CreateGameAsync(options, this.GetCancellationTokenOnDestroy());
-                _lobbyService.UpdateConfig(new LobbyConfig
+                var joinOptions = new JoinGameOptions();
+                await _lobbyService.JoinGameAsync(result.GameId, joinOptions, this.GetCancellationTokenOnDestroy());
+                _lobbyService.UpdateData(new LobbyData
                 {
                     GameId = result.GameId,
                     IsHost = true
                 });
 
-                if (_openLobbyAfterCreate && _windowSystem != null && !string.IsNullOrWhiteSpace(_lobbyTemplateId))
+                if (_openLobbyAfterCreate)
                 {
-                    await _windowSystem.ShowWindowAsync<LobbyContent>(_lobbyTemplateId);
+                    _lobbyFlowService.RequestEnter();
                 }
             }
             catch (Exception ex)

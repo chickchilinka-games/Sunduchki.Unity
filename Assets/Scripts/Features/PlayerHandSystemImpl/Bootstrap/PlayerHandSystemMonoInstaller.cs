@@ -1,9 +1,11 @@
 using System;
 using Features.PlayerHandSystemImpl.Factory;
-using Features.PlayerHandSystemImpl.Rules;
-using Features.PlayerHandSystemImpl.Service;
+using Features.PlayerHandSystemImpl.Interfaces;
+using Features.PlayerHandSystemImpl.Presenters;
+using Features.PlayerHandSystemImpl.Providers;
 using Features.PlayerHandSystemImpl.View;
 using Modules.PlayerHand.Bootstrap;
+using Modules.AssetSystem.Attributes;
 using UnityEngine;
 using Zenject;
 
@@ -17,8 +19,9 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
         public override void InstallBindings()
         {
             Container.Install<PlayerHandInstaller>();
-            Container.Bind<PlayerHandViewService>().AsSingle();
-            Container.BindInterfacesAndSelfTo<PlayerHandViewRule>().AsSingle();
+            Container.Bind<PlayerHandPresenterFactory>().AsSingle();
+            Container.BindInterfacesAndSelfTo<PlayerHandPresenter>().AsSingle();
+            Container.Bind<ITargetPlayerSelector>().To<SingleOpponentSelector>().AsSingle();
 
             BindStandardPool();
             BindBonusPool();

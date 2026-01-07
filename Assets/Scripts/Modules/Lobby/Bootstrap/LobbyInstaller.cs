@@ -4,8 +4,10 @@ using Modules.Lobby.Model;
 using Modules.Lobby.Providers;
 using Modules.Lobby.Services;
 using Modules.SignalR;
+using Modules.SignalR.Config;
 using UnityEngine;
 using Zenject;
+using ITokenProvider = Modules.Lobby.Interfaces.ITokenProvider;
 
 namespace Modules.Lobby.Bootstrap
 {
@@ -13,11 +15,8 @@ namespace Modules.Lobby.Bootstrap
     {
         public override void InstallBindings()
         {
-            Container.Bind<ILobbyApiConfigProvider>()
-                .FromInstance(LoadApiConfigProvider())
-                .AsSingle();
-
             Container.Bind<ILobbyApiClient>().To<RestLobbyApiClient>().AsSingle();
+            Container.Bind<ITokenProvider>().To<LobbyTokenProvider>().AsSingle().IfNotBound();
             Container.Bind<LobbyModel>().AsSingle();
             Container.BindInterfacesAndSelfTo<LobbyStateContext>().AsSingle();
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -26,18 +25,8 @@ namespace Modules.Lobby.Bootstrap
             Container.Bind<ISignalRConnectionFactory>().To<DotNetSignalRConnectionFactory>().AsSingle();
 #endif
             Container.Bind<ILobbySignalRClient>().To<SignalRLobbyClient>().AsSingle();
+            Container.Bind<SignalR.Config.ITokenProvider>().To<SignalRTokenProvider>().AsSingle();
             Container.Bind<LobbyService>().AsSingle();
-        }
-
-        private ILobbyApiConfigProvider LoadApiConfigProvider()
-        {
-            var asset = Resources.Load<LobbyApiConfigProviderAsset>("Lobby/LobbyApiConfig");
-            if (asset != null)
-            {
-                return asset;
-            }
-
-            return ScriptableObject.CreateInstance<LobbyApiConfigProviderAsset>();
         }
     }
 }

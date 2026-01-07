@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.AuthenticationSystem.Data;
 using Modules.AuthenticationSystem.Entities;
+using Modules.AuthenticationSystem.Exceptions;
 using Modules.AuthenticationSystem.Interfaces;
+using Modules.AuthenticationSystem.Utils;
 using R3;
 using UnityEngine;
 using Zenject;
@@ -81,6 +84,30 @@ namespace Modules.AuthenticationSystem.Services
             }
         }
 
+        public async UniTask<UserContext> RefreshUserContextAsync(CancellationToken cancellationToken = default)
+        {
+            if (_model.UserContextStream.CurrentValue == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var refreshed = await _authority.RefreshAsync(cancellationToken);
+                if (refreshed != null)
+                {
+                    _model.CompleteSignIn(refreshed);
+                }
+
+                return refreshed;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[Authentication] Failed to refresh user context: {ex.Message}");
+                return null;
+            }
+        }
+
         public async UniTask<LinkageResult> LinkAsync(AuthType authType)
         {
             if (!_providersByType.TryGetValue(authType, out var provider))
@@ -110,6 +137,11 @@ namespace Modules.AuthenticationSystem.Services
                 _model.Link(linkageInfo);
 
                 return LinkageResult.Succeeded(linkageInfo);
+            }
+            catch (UserCancelledException ex)
+            {
+                Debug.Log($"[Authentication] User cancelled linking {authType}: {ex.Message}");
+                return LinkageResult.Failed(null, AuthenticationConstants.ErrorCodes.UserCancelled);
             }
             catch (Exception ex)
             {
@@ -154,6 +186,42 @@ namespace Modules.AuthenticationSystem.Services
             }
         }
 
+        public async UniTask<OperationResult> DeleteAccountAsync()
+        {
+            if (_model.AuthStatusStream.CurrentValue != AuthStatus.SignedIn)
+                return OperationResult.Failed("Not signed in.");
+
+            var userContext = _model.UserContextStream.CurrentValue;
+            if (userContext == null)
+                return OperationResult.Failed("No user context.");
+
+            var authType = DeterminePrimaryAuthType(userContext);
+            if (authType == AuthType.None)
+                return OperationResult.Failed("No primary auth type found.");
+
+            if (!_providersByType.TryGetValue(authType, out var provider))
+                return OperationResult.Failed($"No {authType} provider.");
+
+            try
+            {
+                var credential = await provider.AcquireCredentialAsync();
+                await _authority.DeleteAsync(credential);
+
+                _model.SignOut();
+                return OperationResult.Succeeded();
+            }
+            catch (UserCancelledException ex)
+            {
+                Debug.Log($"[Authentication] User cancelled account deletion authorization: {ex.Message}");
+                return OperationResult.Failed(AuthenticationConstants.ErrorCodes.UserCancelled);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[Authentication] Failed to delete account: {ex.Message}");
+                return OperationResult.Failed($"Failed to delete account: {ex.Message}");
+            }
+        }
+
         public AuthType[] GetAvailableAuthTypes()
         {
             return _providersByType.Keys.ToArray();
@@ -184,6 +252,13 @@ namespace Modules.AuthenticationSystem.Services
 
                 return AuthResult.Succeeded(userContext);
             }
+            catch (UserCancelledException ex)
+            {
+                Debug.Log($"[Authentication] User cancelled sign-in with {authType}: {ex.Message}");
+                _model.FailSignIn();
+
+                return AuthResult.Failure(AuthenticationConstants.ErrorCodes.UserCancelled);
+            }
             catch (Exception ex)
             {
                 Debug.LogError($"[Authentication] Sign-in failed for {authType}: {ex.Message}");
@@ -193,7 +268,7 @@ namespace Modules.AuthenticationSystem.Services
             }
         }
 
-        private static AuthType DeterminePrimaryAuthType(UserContext userContext)
+        private AuthType DeterminePrimaryAuthType(UserContext userContext)
         {
             if (userContext == null)
             {
@@ -201,7 +276,9 @@ namespace Modules.AuthenticationSystem.Services
             }
 
             var nonAnonymous = userContext.LinkedProviders
-                .FirstOrDefault(lp => lp.AuthType != AuthType.Anonymous && lp.AuthType != AuthType.None);
+                .FirstOrDefault(lp =>
+                    lp.AuthType != AuthType.Anonymous && lp.AuthType != AuthType.None &&
+                    _providersByType.ContainsKey(lp.AuthType));
             if (nonAnonymous != null)
             {
                 return nonAnonymous.AuthType;

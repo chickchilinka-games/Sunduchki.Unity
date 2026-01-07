@@ -32,13 +32,21 @@ namespace Modules.AuthenticationSystem.Utils
             return this;
         }
 
+        public AuthCredentialBuilder WithPassword(string password)
+        {
+            WithParameter(ParameterKeys.Password, password);
+            return this;
+        }
+
         public AuthCredentialBuilder WithIdToken(string idToken) => WithParameter(ParameterKeys.IdToken, idToken);
 
-        public AuthCredentialBuilder WithAccessToken(string accessToken) => WithParameter(ParameterKeys.AccessToken, accessToken);
+        public AuthCredentialBuilder WithAccessToken(string accessToken) =>
+            WithParameter(ParameterKeys.AccessToken, accessToken);
 
         public AuthCredentialBuilder WithRawNonce(string rawNonce) => WithParameter(ParameterKeys.RawNonce, rawNonce);
 
-        public AuthCredentialBuilder WithDisplayName(string displayName) => WithParameter(ParameterKeys.DisplayName, displayName);
+        public AuthCredentialBuilder WithDisplayName(string displayName) =>
+            WithParameter(ParameterKeys.DisplayName, displayName);
 
         public AuthCredentialBuilder WithScopes(IEnumerable<string> scopes)
         {
@@ -124,6 +132,19 @@ namespace Modules.AuthenticationSystem.Utils
             return ParseWebInternal(credential, expectedAuthType: credential?.AuthType ?? AuthType.None);
         }
 
+        public static EmailAuthCredential ParseEmail(AuthCredential credential)
+        {
+            var webCredential = ParseWebInternal(credential, AuthType.Email);
+
+            credential.TryGet(ParameterKeys.Password, out string password);
+            return new EmailAuthCredential(
+                webCredential.Username,
+                webCredential.DisplayName,
+                password,
+                webCredential.Scopes,
+                webCredential.CustomParameters);
+        }
+
         private static WebAuthCredential ParseWebInternal(AuthCredential credential, AuthType expectedAuthType)
         {
             if (credential == null)
@@ -133,7 +154,9 @@ namespace Modules.AuthenticationSystem.Utils
 
             if (expectedAuthType != AuthType.None && credential.AuthType != expectedAuthType)
             {
-                throw new ArgumentException($"Credential must be of type {expectedAuthType}, but was {credential.AuthType}.", nameof(credential));
+                throw new ArgumentException(
+                    $"Credential must be of type {expectedAuthType}, but was {credential.AuthType}.",
+                    nameof(credential));
             }
 
             if (credential.AuthType == AuthType.None)
@@ -172,7 +195,8 @@ namespace Modules.AuthenticationSystem.Utils
             return Array.Empty<string>();
         }
 
-        private static IReadOnlyDictionary<string, string> ExtractCustomParameters(IReadOnlyDictionary<string, object> parameters)
+        private static IReadOnlyDictionary<string, string> ExtractCustomParameters(
+            IReadOnlyDictionary<string, object> parameters)
         {
             if (parameters.TryGetValue(ParameterKeys.CustomParameters, out var raw) && raw != null)
             {
@@ -191,6 +215,7 @@ namespace Modules.AuthenticationSystem.Utils
         public static class ParameterKeys
         {
             public const string Email = "email";
+            public const string Password = "password";
             public const string IdToken = "idToken";
             public const string AccessToken = "accessToken";
             public const string RawNonce = "rawNonce";

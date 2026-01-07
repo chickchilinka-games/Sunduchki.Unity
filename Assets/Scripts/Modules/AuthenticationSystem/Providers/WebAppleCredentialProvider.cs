@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
+using Firebase.Auth;
 using Modules.AuthenticationSystem.Data;
 using Modules.AuthenticationSystem.Interfaces;
 using Modules.AuthenticationSystem.Utils;

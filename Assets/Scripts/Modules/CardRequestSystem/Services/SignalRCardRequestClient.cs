@@ -42,24 +42,48 @@ namespace Modules.CardRequestSystem.Services
 
         private static void RegisterHandlers(ISignalRConnection connection, ICardRequestSignalListener listener)
         {
-            connection.On<string, string, string>("CardsRequested", (from, target, rank) =>
+            connection.On<CardsRequestedDto>("CardsRequested", payload =>
             {
-                listener.OnCardsRequested(from, target, rank);
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnCardsRequested(payload.FromPlayerId, payload.TargetPlayerId, payload.Rank);
             });
 
-            connection.On<string, string, string, int>("CardsTransferred", (from, to, rank, count) =>
+            connection.On<CardsTransferredDto>("CardsTransferred", payload =>
             {
-                listener.OnCardsTransferred(from, to, rank, count);
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnCardsTransferred(payload.FromPlayerId, payload.ToPlayerId, payload.Rank, payload.Count);
             });
 
-            connection.On<string, string, string>("NoCardsResponse", (from, target, rank) =>
+            connection.On<NoCardsResponseDto>("NoCardsResponse", payload =>
             {
-                listener.OnNoCardsResponse(from, target, rank);
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnNoCardsResponse(payload.FromPlayerId, payload.TargetPlayerId, payload.Rank);
             });
 
-            connection.On<string, string, string, List<string>>("DefenseDecisionRequested", (asker, target, rank, options) =>
+            connection.On<DefenseDecisionRequestedDto>("DefenseDecisionRequested", payload =>
             {
-                listener.OnDefenseDecisionRequested(asker, target, rank, options ?? new List<string>());
+                if (payload == null)
+                {
+                    return;
+                }
+
+                listener.OnDefenseDecisionRequested(
+                    payload.AskerId,
+                    payload.TargetPlayerId,
+                    payload.Rank,
+                    payload.DefenseOptions ?? new List<string>());
             });
         }
 
@@ -90,6 +114,36 @@ namespace Modules.CardRequestSystem.Services
         {
             public string GameId { get; set; }
             public string PlayerId { get; set; }
+        }
+
+        private sealed class CardsRequestedDto
+        {
+            public string FromPlayerId { get; set; }
+            public string TargetPlayerId { get; set; }
+            public string Rank { get; set; }
+        }
+
+        private sealed class CardsTransferredDto
+        {
+            public string FromPlayerId { get; set; }
+            public string ToPlayerId { get; set; }
+            public string Rank { get; set; }
+            public int Count { get; set; }
+        }
+
+        private sealed class NoCardsResponseDto
+        {
+            public string FromPlayerId { get; set; }
+            public string TargetPlayerId { get; set; }
+            public string Rank { get; set; }
+        }
+
+        private sealed class DefenseDecisionRequestedDto
+        {
+            public string AskerId { get; set; }
+            public string TargetPlayerId { get; set; }
+            public string Rank { get; set; }
+            public List<string> DefenseOptions { get; set; }
         }
     }
 }

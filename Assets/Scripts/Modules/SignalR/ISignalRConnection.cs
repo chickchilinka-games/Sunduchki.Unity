@@ -13,6 +13,8 @@ namespace Modules.SignalR
         void On<T1, T2>(string methodName, Action<T1, T2> handler);
         void On<T1, T2, T3>(string methodName, Action<T1, T2, T3> handler);
         void On<T1, T2, T3, T4>(string methodName, Action<T1, T2, T3, T4> handler);
+        void OnClosed(Action<Exception> handler);
+        void OnReconnected(Action<string> handler);
         void RemoveHandler(string methodName);
         UniTask StopAsync(CancellationToken cancellationToken = default);
     }

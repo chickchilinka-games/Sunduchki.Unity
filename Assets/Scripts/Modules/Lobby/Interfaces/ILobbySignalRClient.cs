@@ -10,6 +10,8 @@ namespace Modules.Lobby.Interfaces
 
         UniTask JoinGameAsync(LobbySignalRJoinPayload payload, CancellationToken cancellationToken = default);
 
+        UniTask LeaveGameAsync(LobbySignalRLeavePayload payload, CancellationToken cancellationToken = default);
+
         UniTask DisconnectAsync(CancellationToken cancellationToken = default);
     }
 }

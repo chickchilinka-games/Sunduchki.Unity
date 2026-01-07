@@ -14,9 +14,9 @@ namespace Modules.AssetSystem.Editor.Validator
         {
             if (EditorWindow.HasOpenInstances<AssetRefValidatorWindow>())
             {
-                var wnd = EditorWindow.GetWindow<AssetRefValidatorWindow>();
-                if (wnd)
-                    wnd.RebuildNow();
+                //var wnd = EditorWindow.GetWindow<AssetRefValidatorWindow>();
+                //if (wnd)
+                    //wnd.RebuildNow();
             }
         }
     }

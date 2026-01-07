@@ -9,7 +9,8 @@ namespace Modules.Lobby.Data
         public string ErrorMessage { get; private set; }
         public int? DeckCount { get; private set; }
         public int? TotalCards { get; private set; }
-        public object Result { get; private set; }
+        public GameEndedResultDto Result { get; private set; }
+        public string GameEndedReason { get; private set; }
 
         public LobbyState(
             LobbyStatus status,
@@ -17,7 +18,8 @@ namespace Modules.Lobby.Data
             string errorMessage,
             int? deckCount,
             int? totalCards,
-            object result)
+            GameEndedResultDto result,
+            string gameEndedReason)
         {
             Status = status;
             Started = started;
@@ -25,11 +27,13 @@ namespace Modules.Lobby.Data
             DeckCount = deckCount;
             TotalCards = totalCards;
             Result = result;
+            GameEndedReason = gameEndedReason;
         }
 
         public static LobbyState Default => new(
             LobbyStatus.Idle,
             false,
+            null,
             null,
             null,
             null,
@@ -64,10 +68,17 @@ namespace Modules.Lobby.Data
             return copy;
         }
 
-        public LobbyState WithResult(object result)
+        public LobbyState WithResult(GameEndedResultDto result)
         {
             var copy = this;
             copy.Result = result;
+            return copy;
+        }
+
+        public LobbyState WithGameEndedReason(string reason)
+        {
+            var copy = this;
+            copy.GameEndedReason = reason;
             return copy;
         }
 
