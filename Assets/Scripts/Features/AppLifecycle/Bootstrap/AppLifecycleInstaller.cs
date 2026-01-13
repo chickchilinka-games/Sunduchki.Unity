@@ -38,6 +38,7 @@ namespace Features.AppLifecycle.Bootstrap
         {
             InstallBootStep<LoadInitialSceneStep>();
             InstallBootStep<InitializeFirebaseSubstep>();
+            InstallBootStep<LoadAppDataStep>();
             InstallBootStep<AuthorizationSubstep>();
         }
 

@@ -6,7 +6,8 @@
         "Zenject",
         "SignalR",
         "Lobby",
-        "UniTask"
+        "UniTask",
+        "AppData"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -15,6 +15,7 @@ namespace Modules.BonusSystem.Bootstrap
             Container.Bind<IBonusActionClient>().To<SignalRBonusActionClient>().AsSingle();
             Container.BindInterfacesTo<TrackBonusActionsOnLobbyConnectRule>().AsSingle();
             Container.Bind<IBonusCardRulesProvider>().FromInstance(LoadRulesProvider()).AsSingle();
+            Container.BindInterfacesTo<BonusCardInfoConfigProvider>().AsSingle();
         }
 
         private IBonusCardRulesProvider LoadRulesProvider()

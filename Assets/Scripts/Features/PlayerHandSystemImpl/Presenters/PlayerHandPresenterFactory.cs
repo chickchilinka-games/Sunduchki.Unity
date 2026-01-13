@@ -33,6 +33,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
         private readonly DefenseDecisionService _defenseService;
         private readonly ITargetPlayerSelector _targetSelector;
         private readonly IBonusCardRulesProvider _rulesProvider;
+        private readonly IBonusCardInfoProvider _infoProvider;
 
         public PlayerHandPresenterFactory(
             PlayerHandService playerHandService,
@@ -42,7 +43,8 @@ namespace Features.PlayerHandSystemImpl.Presenters
             BonusActionService bonusService,
             DefenseDecisionService defenseService,
             ITargetPlayerSelector targetSelector,
-            IBonusCardRulesProvider rulesProvider)
+            IBonusCardRulesProvider rulesProvider,
+            IBonusCardInfoProvider infoProvider)
         {
             _playerHandService = playerHandService ?? throw new ArgumentNullException(nameof(playerHandService));
             _lobbyService = lobbyService ?? throw new ArgumentNullException(nameof(lobbyService));
@@ -52,6 +54,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
             _defenseService = defenseService ?? throw new ArgumentNullException(nameof(defenseService));
             _targetSelector = targetSelector ?? throw new ArgumentNullException(nameof(targetSelector));
             _rulesProvider = rulesProvider ?? throw new ArgumentNullException(nameof(rulesProvider));
+            _infoProvider = infoProvider ?? throw new ArgumentNullException(nameof(infoProvider));
         }
 
         public PlayerHandPresenterState CreateState()
@@ -64,7 +67,8 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 _bonusService,
                 _defenseService,
                 _targetSelector,
-                _rulesProvider);
+                _rulesProvider,
+                _infoProvider);
         }
     }
 
@@ -104,14 +108,20 @@ namespace Features.PlayerHandSystemImpl.Presenters
             BonusActionService bonusService,
             DefenseDecisionService defenseService,
             ITargetPlayerSelector targetSelector,
-            IBonusCardRulesProvider rulesProvider)
+            IBonusCardRulesProvider rulesProvider,
+            IBonusCardInfoProvider infoProvider)
         {
             _playerHandService = playerHandService ?? throw new ArgumentNullException(nameof(playerHandService));
             _lobbyService = lobbyService ?? throw new ArgumentNullException(nameof(lobbyService));
             _turnService = turnService ?? throw new ArgumentNullException(nameof(turnService));
             _cardRequestService = cardRequestService ?? throw new ArgumentNullException(nameof(cardRequestService));
             _defenseService = defenseService ?? throw new ArgumentNullException(nameof(defenseService));
-            _bonusPresenter = new BonusHandPresenterState(bonusService, defenseService, targetSelector, rulesProvider);
+            _bonusPresenter = new BonusHandPresenterState(
+                bonusService,
+                defenseService,
+                targetSelector,
+                rulesProvider,
+                infoProvider);
         }
 
         public bool Start()

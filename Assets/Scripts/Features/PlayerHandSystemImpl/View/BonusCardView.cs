@@ -1,6 +1,9 @@
 using System;
 using Cysharp.Threading.Tasks;
 using Features.PlayerHandSystemImpl.ViewModel;
+using Features.BonusSystemImpl.View;
+using Features.WindowSystemImpl.Templates;
+using ICVR.Window;
 using Modules.AssetSystem.Models;
 using Modules.AssetSystem.Services;
 using R3;
@@ -16,17 +19,20 @@ namespace Features.PlayerHandSystemImpl.View
 
         [SerializeField] private Image _icon;
         [SerializeField] private Button _button;
+        [SerializeField] private Button _infoButton;
         [SerializeField] private CanvasGroup _canvasGroup;
 
         private AssetService _assetService;
+        private WindowSystem _windowSystem;
         private BonusCardViewModel _viewModel;
         private ManagedAsset<Sprite> _iconHandle;
         private CompositeDisposable _bindings;
 
         [Inject]
-        public void Construct(AssetService assetService)
+        public void Construct(AssetService assetService, WindowSystem windowSystem)
         {
             _assetService = assetService;
+            _windowSystem = windowSystem;
         }
 
         private void Awake()
@@ -55,6 +61,12 @@ namespace Features.PlayerHandSystemImpl.View
             {
                 _button.onClick.RemoveAllListeners();
                 _button.onClick.AddListener(() => _viewModel?.TriggerUse());
+            }
+
+            if (_infoButton != null)
+            {
+                _infoButton.onClick.RemoveAllListeners();
+                _infoButton.onClick.AddListener(OnInfoClicked);
             }
 
             await UpdateIconAsync(_viewModel.BonusCardType);
@@ -126,6 +138,11 @@ namespace Features.PlayerHandSystemImpl.View
                 _button.interactable = false;
             }
 
+            if (_infoButton != null)
+            {
+                _infoButton.onClick.RemoveAllListeners();
+            }
+
             if (_icon != null)
             {
                 _icon.sprite = null;
@@ -143,6 +160,27 @@ namespace Features.PlayerHandSystemImpl.View
             _bindings?.Dispose();
             _bindings = null;
             _viewModel = null;
+        }
+
+        private void OnInfoClicked()
+        {
+            if (_windowSystem == null || _viewModel == null)
+            {
+                return;
+            }
+
+            var title = _viewModel.InfoTitle;
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                title = _viewModel.BonusCardType;
+            }
+
+            var description = _viewModel.InfoText;
+            _windowSystem
+                .ShowWindowAsync<BonusCardInfoContent, BonusCardInfoContentData>(
+                    nameof(ModalWindowTemplate),
+                    new BonusCardInfoContentData(_icon != null ? _icon.sprite : null, title, description))
+                .Forget();
         }
     }
 }

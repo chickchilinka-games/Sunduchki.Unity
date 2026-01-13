@@ -11,6 +11,7 @@ namespace Modules.AppData.Bootstrap
         {
             Container.Bind<AppDataService>().AsSingle();
             Container.Bind<IAppDataCache>().To<PlayerPrefsAppDataCache>().AsSingle();
+            Container.Bind<IAppDataProvider>().To<FirebaseAppDataProvider>().AsSingle();
             Container.BindInterfacesTo<AppDataConsumersCollector>().AsSingle();
             Container.BindInterfacesTo<JsonSerializer>().AsSingle();
         }

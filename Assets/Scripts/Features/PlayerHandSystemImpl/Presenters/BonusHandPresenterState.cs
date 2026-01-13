@@ -22,6 +22,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
         private readonly DefenseDecisionService _defenseService;
         private readonly ITargetPlayerSelector _targetSelector;
         private readonly IBonusCardRulesProvider _rulesProvider;
+        private readonly IBonusCardInfoProvider _infoProvider;
         private readonly ObservableList<BonusCardViewModel> _bonusCards = new();
         private readonly Dictionary<string, List<BonusCardViewModel>> _bonusesByType =
             new(StringComparer.OrdinalIgnoreCase);
@@ -40,12 +41,14 @@ namespace Features.PlayerHandSystemImpl.Presenters
             BonusActionService bonusService,
             DefenseDecisionService defenseService,
             ITargetPlayerSelector targetSelector,
-            IBonusCardRulesProvider rulesProvider)
+            IBonusCardRulesProvider rulesProvider,
+            IBonusCardInfoProvider infoProvider)
         {
             _bonusService = bonusService ?? throw new ArgumentNullException(nameof(bonusService));
             _defenseService = defenseService ?? throw new ArgumentNullException(nameof(defenseService));
             _targetSelector = targetSelector ?? throw new ArgumentNullException(nameof(targetSelector));
             _rulesProvider = rulesProvider ?? throw new ArgumentNullException(nameof(rulesProvider));
+            _infoProvider = infoProvider ?? throw new ArgumentNullException(nameof(infoProvider));
             FillRuleSets();
         }
 
@@ -111,6 +114,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 while (viewModels.Count < count)
                 {
                     var vm = new BonusCardViewModel(typeKey);
+                    ApplyInfo(vm);
                     viewModels.Add(vm);
                     _bonusCards.Add(vm);
                     SubscribeToBonus(vm);
@@ -144,6 +148,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
             }
 
             UpdateBonusUsability();
+            UpdateAllInfo();
         }
 
         public void SetAttackTurn(bool isLocalTurn)
@@ -214,6 +219,30 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 }
 
                 viewModel?.SetCanUse(canUse);
+            }
+        }
+
+        private void ApplyInfo(BonusCardViewModel viewModel)
+        {
+            if (viewModel == null || _infoProvider == null)
+            {
+                return;
+            }
+
+            if (_infoProvider.TryGetInfo(viewModel.BonusCardType, out var info))
+            {
+                viewModel.SetInfo(info.Title, info.Description);
+                return;
+            }
+
+            viewModel.SetInfo(string.Empty, string.Empty);
+        }
+
+        private void UpdateAllInfo()
+        {
+            foreach (var viewModel in _bonusCards)
+            {
+                ApplyInfo(viewModel);
             }
         }
 

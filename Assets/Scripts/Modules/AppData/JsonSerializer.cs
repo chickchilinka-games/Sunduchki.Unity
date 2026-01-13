@@ -1,3 +1,4 @@
+using System;
 using Modules.AppData.Interfaces;
 using Newtonsoft.Json;
 
@@ -17,7 +18,7 @@ namespace Modules.AppData
                 data = JsonConvert.DeserializeObject<T>(serializedData);
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
                 data = default;
                 return false;
