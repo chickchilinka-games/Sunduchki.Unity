@@ -222,6 +222,8 @@ namespace Modules.Lobby.Services
         {
             var message = exception?.Message ?? "Unknown error";
             Debug.LogError($"[Lobby] Failed to {context}: {message}");
+            if(exception!=null)
+                Debug.LogException(exception);
 
             _state.MutateState(state => state.WithStatus(fallbackStatus).WithError(message));
         }
