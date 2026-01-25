@@ -2,6 +2,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Modules.SignalR.Config;
 using Zenject;
@@ -32,6 +33,7 @@ namespace Modules.SignalR
                     {
                         options.AccessTokenProvider = () => Task.FromResult(resolvedToken);
                     }
+                    options.Transports = HttpTransportType.LongPolling;
                 })
                 .WithAutomaticReconnect();
 

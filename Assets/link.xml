@@ -1,0 +1,6 @@
+<linker>
+    <assembly fullname="Microsoft.AspNetCore.SignalR.Client" preserve="all"/>
+    <assembly fullname="Microsoft.Extensions.Http" preserve="all"/>
+    <assembly fullname="System.Net.Http" preserve="all"/>
+    <assembly fullname="Microsoft.AspNetCore.SignalR.Client.Core" preserve="all"/>
+</linker>
