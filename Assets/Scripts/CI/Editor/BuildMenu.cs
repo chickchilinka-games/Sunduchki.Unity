@@ -13,7 +13,7 @@ namespace CI.Editor
 {
     public static class BuildMenu
     {
-        private const string ServerBaseUrl = "http://sunduchki.online";
+        private const string ServerBaseUrl = "https://sunduchki.online";
         private const string LocalGameBaseUrl = "http://localhost:5000/game";
         private const string LocalAccountsBaseUrl = "http://localhost:5092/accounts";
         private const string PreloaderScenePath = "Assets/Scenes/Preloader.unity";
