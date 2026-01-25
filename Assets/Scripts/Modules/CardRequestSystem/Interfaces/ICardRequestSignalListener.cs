@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Modules.CardRequestSystem.Data;
 
 namespace Modules.CardRequestSystem.Interfaces
 {
@@ -6,7 +7,7 @@ namespace Modules.CardRequestSystem.Interfaces
     {
         void OnCardsRequested(string from, string target, string rank);
 
-        void OnCardsTransferred(string from, string to, string rank, int count);
+        void OnCardsTransferred(string from, string to, IReadOnlyList<CardTransferCardData> cards);
 
         void OnNoCardsResponse(string from, string target, string rank);
 

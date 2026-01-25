@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Features.AppLifecycle.Services;
 using Features.LobbyImpl.View;
@@ -7,6 +8,7 @@ using ICVR.Window;
 using ICVR.Window.Abstract;
 using Modules.Lobby.Data;
 using Modules.Lobby.Services;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using Zenject;
@@ -21,6 +23,10 @@ namespace Features.AppLifecycle.States.Home.View
         [Header("UI")]
         [SerializeField] private Button _joinGameButton;
         [SerializeField] private Button _createGameButton;
+        [SerializeField] private Button _findMatchButton;
+        [SerializeField] private Button _cancelMatchButton;
+        [SerializeField] private TMP_Text _matchmakingTimerText;
+        [SerializeField] private TMP_Text _matchmakingStatusText;
 
         [Header("Create Settings")]
         [SerializeField] private DeckType _deckType = DeckType.Short36;
@@ -34,6 +40,9 @@ namespace Features.AppLifecycle.States.Home.View
         private LobbyFlowService _lobbyFlowService;
         private WindowSystem _windowSystem;
         private bool _isCreating;
+        private bool _isSearching;
+        private float _matchmakingStartedAt;
+        private CancellationTokenSource _matchmakingCts;
 
         public override string Title => "Main Menu";
 
@@ -56,6 +65,18 @@ namespace Features.AppLifecycle.States.Home.View
             {
                 _joinGameButton.onClick.AddListener(OnJoinClicked);
             }
+
+            if (_findMatchButton != null)
+            {
+                _findMatchButton.onClick.AddListener(OnFindMatchClicked);
+            }
+
+            if (_cancelMatchButton != null)
+            {
+                _cancelMatchButton.onClick.AddListener(OnCancelMatchClicked);
+            }
+            
+            SetSearching(false);
         }
 
         private void OnDestroy()
@@ -68,6 +89,27 @@ namespace Features.AppLifecycle.States.Home.View
             if (_joinGameButton != null)
             {
                 _joinGameButton.onClick.RemoveListener(OnJoinClicked);
+            }
+
+            if (_findMatchButton != null)
+            {
+                _findMatchButton.onClick.RemoveListener(OnFindMatchClicked);
+            }
+
+            if (_cancelMatchButton != null)
+            {
+                _cancelMatchButton.onClick.RemoveListener(OnCancelMatchClicked);
+            }
+
+            _matchmakingCts?.Cancel();
+            _matchmakingCts?.Dispose();
+        }
+
+        private void Update()
+        {
+            if (_isSearching)
+            {
+                UpdateMatchmakingTimer();
             }
         }
 
@@ -129,12 +171,109 @@ namespace Features.AppLifecycle.States.Home.View
             }
         }
 
+        private void OnFindMatchClicked()
+        {
+            if (_isSearching || _lobbyService == null)
+            {
+                return;
+            }
+
+            _matchmakingCts?.Cancel();
+            _matchmakingCts?.Dispose();
+            _matchmakingCts = new CancellationTokenSource();
+            StartMatchmakingAsync(_matchmakingCts.Token).Forget();
+        }
+
+        private void OnCancelMatchClicked()
+        {
+            if (!_isSearching)
+            {
+                return;
+            }
+
+            _matchmakingCts?.Cancel();
+            _matchmakingCts?.Dispose();
+            _matchmakingCts = null;
+            SetSearching(false);
+        }
+
+        private async UniTaskVoid StartMatchmakingAsync(CancellationToken cancellationToken)
+        {
+            SetSearching(true);
+
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                this.GetCancellationTokenOnDestroy());
+
+            try
+            {
+                var options = new MatchmakingOptions(
+                    _deckType,
+                    Mathf.Max(1, _startingHand),
+                    string.IsNullOrWhiteSpace(_gameMode) ? "classic" : _gameMode.Trim());
+
+                var result = await _lobbyService.SearchMatchAsync(options, linkedCts.Token);
+                _lobbyFlowService.RequestEnter();
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.Log("[MainMenu] Matchmaking cancelled.");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[MainMenu] Matchmaking failed: {ex.Message}");
+            }
+            finally
+            {
+                SetSearching(false);
+                _matchmakingCts?.Dispose();
+                _matchmakingCts = null;
+            }
+        }
+
         private void SetCreateButtonInteractable(bool canInteract)
         {
             if (_createGameButton != null)
             {
                 _createGameButton.interactable = canInteract;
             }
+        }
+
+        private void SetSearching(bool isSearching)
+        {
+            _isSearching = isSearching;
+            _matchmakingStartedAt = isSearching ? Time.realtimeSinceStartup : 0f;
+
+            if (_findMatchButton != null)
+            {
+                _findMatchButton.interactable = !isSearching;
+            }
+
+            if (_cancelMatchButton != null)
+            {
+                _cancelMatchButton.gameObject.SetActive(isSearching);
+            }
+
+            if (_matchmakingStatusText != null)
+            {
+                _matchmakingStatusText.text = isSearching ? "Searching..." : "Find game";
+            }
+
+            if (_matchmakingTimerText != null)
+            {
+                _matchmakingTimerText.text = isSearching ? "0.0s" : string.Empty;
+            }
+        }
+
+        private void UpdateMatchmakingTimer()
+        {
+            if (_matchmakingTimerText == null)
+            {
+                return;
+            }
+
+            var elapsed = Mathf.Max(0f, Time.realtimeSinceStartup - _matchmakingStartedAt);
+            _matchmakingTimerText.text = $"{elapsed:0.0}s";
         }
     }
 }

@@ -10,6 +10,8 @@ namespace Modules.Lobby.Interfaces
 
         UniTask<JoinGameResult> JoinGameAsync(string gameId, JoinGameOptions options, CancellationToken cancellationToken = default);
 
+        UniTask<MatchmakingResult> SearchMatchAsync(MatchmakingOptions options, CancellationToken cancellationToken = default);
+
         UniTask StartGameAsync(string gameId, CancellationToken cancellationToken = default);
     }
 }

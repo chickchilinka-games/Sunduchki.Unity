@@ -13,7 +13,7 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
 {
     public class PlayerHandSystemMonoInstaller : MonoInstaller
     {
-        [SerializeField] private StandardCardView _standardCardViewPrefab;
+        [SerializeField] private RankStackView _standardCardViewPrefab;
         [SerializeField] private BonusCardView _bonusCardViewPrefab;
 
         public override void InstallBindings()
@@ -34,7 +34,7 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
                 throw new InvalidOperationException("Standard card view prefab is not assigned.");
             }
 
-            Container.BindMemoryPool<StandardCardView, StandardCardViewPool>()
+            Container.BindMemoryPool<RankStackView, RankStackViewPool>()
                 .WithInitialSize(0)
                 .FromComponentInNewPrefab(_standardCardViewPrefab)
                 .UnderTransformGroup("PlayerHand_StandardPool");

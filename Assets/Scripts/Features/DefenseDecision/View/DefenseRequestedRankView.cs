@@ -20,7 +20,6 @@ namespace Features.DefenseDecision.View
         [SerializeField] private GameObject _root;
         [SerializeField] private CanvasGroup _canvasGroup;
         [SerializeField] private TMP_Text _askerLabel;
-        [SerializeField] private TMP_Text _rankLabel;
         [SerializeField] private float _hideDelaySeconds = 0.8f;
 
         private DefenseDecisionService _defenseService;
@@ -163,24 +162,14 @@ namespace Features.DefenseDecision.View
             {
                 var askerName = ResolvePlayerName(_askerId);
                 _askerLabel.text = string.IsNullOrWhiteSpace(askerName)
-                    ? "Opponent asked for"
-                    : $"{askerName} asked for";
-            }
-
-            if (_rankLabel != null)
-            {
-                _rankLabel.text = FormatRank(rank);
+                    ? $"Opponent asked for {FormatRank(rank)}"
+                    : $"{askerName} asked for {FormatRank(rank)}";
             }
         }
 
         private void Hide()
         {
             SetVisible(false);
-
-            if (_rankLabel != null)
-            {
-                _rankLabel.text = string.Empty;
-            }
 
             if (_askerLabel != null)
             {

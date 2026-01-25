@@ -77,35 +77,30 @@ namespace Modules.Lobby.Services
             try
             {
                 var result = await _apiClient.JoinGameAsync(gameId, options, cancellationToken);
-                UpdateData(new LobbyData
-                {
-                    GameId = gameId,
-                    PlayerId = result.PlayerId,
-                    DeckCount = result.DeckCount,
-                    TotalCards = result.TotalCards
-                });
-
-                var roster = new List<LobbyPlayerInfo>
-                {
-                    _state.CreatePlayerInfo(result.PlayerId, true)
-                };
-
-                if (result.Players != null)
-                {
-                    foreach (var player in result.Players)
-                    {
-                        roster.Add(_state.CreatePlayerInfo(player.Id, false));
-                    }
-                }
-
-                _state.SetPlayers(roster);
-
+                ApplyMatchData(gameId, result.PlayerId, result.Players, result.DeckCount, result.TotalCards);
                 _state.MutateState(state => state.WithStatus(LobbyStatus.Idle).ClearError());
                 return result;
             }
             catch (Exception ex)
             {
                 HandleError("join-game", ex);
+                throw;
+            }
+        }
+
+        public async UniTask<MatchmakingResult> SearchMatchAsync(MatchmakingOptions options, CancellationToken cancellationToken = default)
+        {
+            _state.MutateState(state => state.WithStatus(LobbyStatus.Joining).ClearError());
+            try
+            {
+                var result = await _apiClient.SearchMatchAsync(options, cancellationToken);
+                ApplyMatchData(result.GameId, result.PlayerId, result.Players, result.DeckCount, result.TotalCards);
+                _state.MutateState(state => state.WithStatus(LobbyStatus.Idle).ClearError());
+                return result;
+            }
+            catch (Exception ex)
+            {
+                HandleError("search-match", ex);
                 throw;
             }
         }
@@ -237,6 +232,33 @@ namespace Modules.Lobby.Services
             {
                 throw new InvalidOperationException("Lobby configuration is incomplete. GameId and PlayerId are required.");
             }
+        }
+
+        private void ApplyMatchData(string gameId, string playerId, IReadOnlyList<LobbyPlayerInfo> players, int deckCount, int totalCards)
+        {
+            UpdateData(new LobbyData
+            {
+                GameId = gameId,
+                PlayerId = playerId,
+                DeckCount = deckCount,
+                TotalCards = totalCards,
+                IsHost = false
+            });
+
+            var roster = new List<LobbyPlayerInfo>
+            {
+                _state.CreatePlayerInfo(playerId, true)
+            };
+
+            if (players != null)
+            {
+                foreach (var player in players)
+                {
+                    roster.Add(_state.CreatePlayerInfo(player.Id, false));
+                }
+            }
+
+            _state.SetPlayers(roster);
         }
     }
 }

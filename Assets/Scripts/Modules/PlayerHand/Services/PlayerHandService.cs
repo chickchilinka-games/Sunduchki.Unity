@@ -12,6 +12,9 @@ namespace Modules.PlayerHand.Services
     {
         private readonly PlayerHandModel _model;
         private readonly Subject<BonusCardUsageEvent> _bonusUsed = new();
+        private readonly Subject<StandardCardDrawnEvent> _standardCardDrawn = new();
+        private readonly Subject<BonusCardDrawnEvent> _bonusCardDrawn = new();
+        private readonly Subject<CardsReceivedEvent> _cardsReceived = new();
 
         public PlayerHandService(
             PlayerHandModel model)
@@ -25,6 +28,9 @@ namespace Modules.PlayerHand.Services
         }
 
         public Observable<BonusCardUsageEvent> BonusUsed => _bonusUsed;
+        public Observable<StandardCardDrawnEvent> StandardCardDrawn => _standardCardDrawn;
+        public Observable<BonusCardDrawnEvent> BonusCardDrawn => _bonusCardDrawn;
+        public Observable<CardsReceivedEvent> CardsReceived => _cardsReceived;
 
         public void ApplyStandardSnapshot(string playerId, IReadOnlyList<StandardCardData> cards)
         {
@@ -36,16 +42,17 @@ namespace Modules.PlayerHand.Services
 
         public void AddStandardCard(string playerId, StandardCardData card)
         {
-            Update(playerId, state =>
+            var property = _model.GetOrCreate(playerId);
+            var current = property.Value;
+            if (current.StandardCards.Any(item => SameStandard(item, card)))
             {
-                var list = state.StandardCards.ToList();
-                if (list.Any(item => SameStandard(item, card)))
-                {
-                    return state;
-                }
-                list.Add(card);
-                return new PlayerHandState(state.PlayerId, list, state.BonusCards);
-            });
+                return;
+            }
+
+            _standardCardDrawn.OnNext(new StandardCardDrawnEvent(playerId, card));
+            var list = current.StandardCards.ToList();
+            list.Add(card);
+            property.Value = new PlayerHandState(current.PlayerId, list, current.BonusCards);
         }
 
         public void RemoveStandardCard(string playerId, StandardCardData card)
@@ -71,6 +78,8 @@ namespace Modules.PlayerHand.Services
                 list.Add(card);
                 return new PlayerHandState(state.PlayerId, state.StandardCards, list);
             });
+
+            _bonusCardDrawn.OnNext(new BonusCardDrawnEvent(playerId, card));
         }
 
         public void RemoveBonusCard(string playerId, BonusCardData card)
@@ -91,6 +100,15 @@ namespace Modules.PlayerHand.Services
         public void NotifyBonusUsed(string playerId, BonusCardData card)
         {
             _bonusUsed.OnNext(new BonusCardUsageEvent(playerId, card.BonusType));
+        }
+
+        public void NotifyCardsReceived(
+            string playerId,
+            string source,
+            IReadOnlyList<StandardCardData> standardCards,
+            IReadOnlyList<BonusCardData> bonusCards)
+        {
+            _cardsReceived.OnNext(new CardsReceivedEvent(playerId, source, standardCards, bonusCards));
         }
 
         public void ClearHand(string playerId)

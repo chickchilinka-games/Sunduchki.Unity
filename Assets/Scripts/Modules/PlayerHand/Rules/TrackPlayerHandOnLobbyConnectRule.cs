@@ -19,6 +19,7 @@ namespace Modules.PlayerHand.Rules
         private readonly IPlayerHandSignalHandler _signalHandler;
         private readonly CompositeDisposable _disposables = new();
         private CancellationTokenSource _cts;
+        private CancellationTokenSource _resetCts;
         private IDisposable _subscription;
 
         public TrackPlayerHandOnLobbyConnectRule(
@@ -48,7 +49,7 @@ namespace Modules.PlayerHand.Rules
                     BeginTracking().Forget();
                     break;
                 default:
-                    StopTracking().Forget();
+                    StopTracking(ShouldDelayReset(state), state.Status == LobbyStatus.Ended).Forget();
                     break;
             }
         }
@@ -61,11 +62,12 @@ namespace Modules.PlayerHand.Rules
                 return;
             }
 
-            await StopTracking();
+            await StopTracking(delayReset: false, keepState: false);
 
             _cts = new CancellationTokenSource();
             try
             {
+                CancelPendingReset();
                 var options = new PlayerHandTrackingOptions(
                     _configProvider.GetHubUri(),
                     _configProvider.GetAccessToken(),
@@ -84,7 +86,7 @@ namespace Modules.PlayerHand.Rules
             }
         }
 
-        private async UniTask StopTracking()
+        private async UniTask StopTracking(bool delayReset, bool keepState)
         {
             _cts?.Cancel();
             _cts?.Dispose();
@@ -93,8 +95,24 @@ namespace Modules.PlayerHand.Rules
             _subscription?.Dispose();
             _subscription = null;
 
-            _signalHandler.ResetState();
-            await UniTask.CompletedTask;
+            if (delayReset)
+            {
+                CancelPendingReset();
+                _resetCts = new CancellationTokenSource();
+                try
+                {
+                    await UniTask.Delay(TimeSpan.FromSeconds(1.2), cancellationToken: _resetCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
+
+            if (!keepState)
+            {
+                _signalHandler.ResetState();
+            }
         }
 
         public void Dispose()
@@ -103,6 +121,19 @@ namespace Modules.PlayerHand.Rules
             _cts?.Cancel();
             _cts?.Dispose();
             _subscription?.Dispose();
+            CancelPendingReset();
+        }
+
+        private void CancelPendingReset()
+        {
+            _resetCts?.Cancel();
+            _resetCts?.Dispose();
+            _resetCts = null;
+        }
+
+        private static bool ShouldDelayReset(LobbyState state)
+        {
+            return false;
         }
     }
 }

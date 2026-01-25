@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Modules.CardRequestSystem.Data;
 using Modules.CardRequestSystem.Interfaces;
 using Modules.DefenseDecisionSystem.Data;
 using Modules.DefenseDecisionSystem.Interfaces;
@@ -22,9 +23,9 @@ namespace Modules.CardRequestSystem.Services
             _stateWriter.RegisterRequest(from, target, rank);
         }
 
-        public void OnCardsTransferred(string from, string to, string rank, int count)
+        public void OnCardsTransferred(string from, string to, IReadOnlyList<CardTransferCardData> cards)
         {
-            _stateWriter.RegisterTransfer(from, to, rank, count);
+            _stateWriter.RegisterTransfer(from, to, cards ?? Array.Empty<CardTransferCardData>());
         }
 
         public void OnNoCardsResponse(string from, string target, string rank)

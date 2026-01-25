@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2ca14adb3299f85498aea71e26bd3f70, type: 3}
   m_Name: ProfileApiConfigProvider
   m_EditorClassIdentifier: 
-  _baseAddress: http://sunduchki.online/accounts
+  _baseAddress: http://localhost:5092/accounts

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Modules.CardRequestSystem.Data
 {
@@ -9,6 +10,7 @@ namespace Modules.CardRequestSystem.Data
         public string TargetId { get; }
         public string Rank { get; }
         public int Count { get; }
+        public IReadOnlyList<CardTransferCardData> Cards { get; }
         public DateTime Timestamp { get; }
 
         public CardRequestEvent(
@@ -17,6 +19,7 @@ namespace Modules.CardRequestSystem.Data
             string targetId,
             string rank,
             int count,
+            IReadOnlyList<CardTransferCardData> cards,
             DateTime timestamp)
         {
             EventType = eventType;
@@ -24,6 +27,7 @@ namespace Modules.CardRequestSystem.Data
             TargetId = targetId ?? string.Empty;
             Rank = rank ?? string.Empty;
             Count = count;
+            Cards = cards ?? Array.Empty<CardTransferCardData>();
             Timestamp = timestamp;
         }
     }

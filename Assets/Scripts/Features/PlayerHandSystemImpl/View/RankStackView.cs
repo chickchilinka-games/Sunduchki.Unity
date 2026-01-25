@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using Features.PlayerHandSystemImpl.ViewModel;
@@ -13,11 +14,14 @@ using Zenject;
 
 namespace Features.PlayerHandSystemImpl.View
 {
-    public class StandardCardView : MonoBehaviour
+    public class RankStackView : MonoBehaviour
     {
         private const string SpriteIdFormat = "Art/Cards/Standard/card_{0}_{1}";
         private const float ReceiveOffsetY = 24f;
-        private const float ReceiveDuration = 0.18f;
+        private const float ReceiveDuration = 0.28f;
+        private const float ReceivePreFadeDuration = 0.12f;
+        private const float ReceivePreFadeAlpha = 0.85f;
+        private const float DeckReceiveOffsetY = -32f;
         private const float TransferShakeDuration = 0.12f;
         private const float TransferShakeStrength = 6f;
         private const float TransferFadeDuration = 0.2f;
@@ -35,9 +39,11 @@ namespace Features.PlayerHandSystemImpl.View
         private readonly Dictionary<Image, Vector2> _cardBasePositions = new();
         private RectTransform _rectTransform;
         private Vector2 _baseAnchoredPosition;
-        private UniTask _animationChain = UniTask.CompletedTask;
+        private readonly SemaphoreSlim _animationGate = new(1, 1);
         private int _lastCount;
         private bool _pendingSetComplete;
+        private int _externalAnimationCount;
+        private bool _suppressRemovalAnimation;
 
         public bool HasPendingSetComplete => _pendingSetComplete;
 
@@ -184,12 +190,12 @@ namespace Features.PlayerHandSystemImpl.View
 
             if (newCount > oldCount && newCount > 0)
             {
-                EnqueueAnimation(() => PlayReceiveAnimationAsync(newCount - 1));
+                // Receive animation is driven externally (deck draw / transfer), keep view static here.
             }
             if (newCount == 0 && _pendingSetComplete)
             {
                 _pendingSetComplete = false;
-                EnqueueAnimation(PlaySetCompleteAnimationAsync);
+                PlaySetCompleteAnimationAsync().Forget();
             }
         }
 
@@ -284,18 +290,16 @@ namespace Features.PlayerHandSystemImpl.View
                     continue;
                 }
 
-                if (!_cardBasePositions.ContainsKey(card))
-                {
-                    _cardBasePositions[card] = card.rectTransform.anchoredPosition;
-                }
+                _cardBasePositions[card] = card.rectTransform.anchoredPosition;
             }
         }
 
         private void ResetAnimations()
         {
-            _animationChain = UniTask.CompletedTask;
             _pendingSetComplete = false;
             _lastCount = 0;
+            _externalAnimationCount = 0;
+            _suppressRemovalAnimation = false;
 
             if (_rectTransform != null)
             {
@@ -326,8 +330,20 @@ namespace Features.PlayerHandSystemImpl.View
 
         private UniTask EnqueueAnimation(Func<UniTask> animation)
         {
-            _animationChain = _animationChain.ContinueWith(animation);
-            return _animationChain;
+            return RunQueued(animation);
+        }
+
+        private async UniTask RunQueued(Func<UniTask> animation)
+        {
+            await _animationGate.WaitAsync();
+            try
+            {
+                await animation();
+            }
+            finally
+            {
+                _animationGate.Release();
+            }
         }
 
         public UniTask PlaySetCompleteAnimationAsync()
@@ -338,6 +354,110 @@ namespace Features.PlayerHandSystemImpl.View
         public UniTask PlayTransferRemovalAnimationAsync()
         {
             return EnqueueAnimation(PlayTransferRemovalSequenceAsync);
+        }
+
+        public bool SkipRemovalAnimation => _suppressRemovalAnimation;
+
+        public void MarkTransferredOut()
+        {
+            _suppressRemovalAnimation = true;
+        }
+
+        public IDisposable BeginExternalAnimation()
+        {
+            _externalAnimationCount++;
+            return new ExternalAnimationScope(this);
+        }
+
+        public UniTask WaitForExternalAnimationsAsync()
+        {
+            return _externalAnimationCount == 0
+                ? UniTask.CompletedTask
+                : UniTask.WaitUntil(() => _externalAnimationCount == 0);
+        }
+
+        private void EndExternalAnimation()
+        {
+            if (_externalAnimationCount <= 0)
+            {
+                return;
+            }
+
+            _externalAnimationCount--;
+        }
+
+        public bool TryGetCardImage(string suit, out Image image)
+        {
+            image = null;
+            if (_cards == null || _cards.Length == 0)
+            {
+                return false;
+            }
+
+            var index = ResolveCardIndex(suit);
+            if (index < 0 || index >= _cards.Length)
+            {
+                return false;
+            }
+
+            var candidate = _cards[index];
+            if (candidate == null || candidate.sprite == null || !candidate.gameObject.activeSelf)
+            {
+                return false;
+            }
+
+            image = candidate;
+            return true;
+        }
+
+        public void SetCardVisibility(Image image, bool visible)
+        {
+            if (image == null)
+            {
+                return;
+            }
+
+            var color = image.color;
+            image.color = new Color(color.r, color.g, color.b, visible ? 1f : 0f);
+        }
+
+        public void PrepareReceive(string suit)
+        {
+            if (_cards == null || _cards.Length == 0)
+            {
+                return;
+            }
+
+            var cardIndex = ResolveCardIndex(suit);
+            if (cardIndex < 0 || cardIndex >= _cards.Length)
+            {
+                return;
+            }
+
+            var card = _cards[cardIndex];
+            if (card == null)
+            {
+                return;
+            }
+
+            if (!card.gameObject.activeSelf)
+            {
+                card.gameObject.SetActive(true);
+            }
+
+            var color = card.color;
+            card.color = new Color(color.r, color.g, color.b, 0f);
+        }
+
+        public UniTask PlayReceiveFromAsync(RectTransform source, string suit)
+        {
+            if (source == null || _cards == null || _cards.Length == 0)
+            {
+                return UniTask.CompletedTask;
+            }
+
+            var cardIndex = ResolveCardIndex(suit);
+            return EnqueueAnimation(() => PlayReceiveFromSourceAsync(source, cardIndex));
         }
 
         private async UniTask PlayReceiveAnimationAsync(int cardIndex)
@@ -364,6 +484,97 @@ namespace Features.PlayerHandSystemImpl.View
             sequence.Append(rect.DOAnchorPos(basePos, ReceiveDuration).SetEase(Ease.OutQuad));
             sequence.Join(card.DOFade(1f, ReceiveDuration));
             await sequence.AsyncWaitForCompletion();
+        }
+
+        private async UniTask PlayReceiveFromSourceAsync(RectTransform source, int cardIndex)
+        {
+            if (_cards == null || cardIndex < 0 || cardIndex >= _cards.Length)
+            {
+                return;
+            }
+
+            var card = _cards[cardIndex];
+            if (card == null)
+            {
+                return;
+            }
+
+            if (!await WaitForCardReadyAsync(cardIndex))
+            {
+                return;
+            }
+
+            await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate);
+            CacheCardPositions();
+
+            var rect = card.rectTransform;
+            var basePos = _cardBasePositions.TryGetValue(card, out var cached) ? cached : rect.anchoredPosition;
+            rect.anchoredPosition = basePos;
+            var targetWorld = rect.position;
+            var sourceWorld = source.position + new Vector3(0f, DeckReceiveOffsetY, 0f);
+
+            DOTween.Kill(rect);
+            rect.position = sourceWorld;
+
+            var color = card.color;
+            card.color = new Color(color.r, color.g, color.b, 0f);
+
+            var sequence = DOTween.Sequence();
+            sequence.Append(card.DOFade(ReceivePreFadeAlpha, ReceivePreFadeDuration));
+            sequence.Append(rect.DOMove(targetWorld, ReceiveDuration).SetEase(Ease.OutQuad));
+            sequence.Join(card.DOFade(1f, ReceiveDuration));
+            await sequence.AsyncWaitForCompletion();
+            rect.anchoredPosition = basePos;
+        }
+
+        private async UniTask<bool> WaitForCardReadyAsync(int cardIndex)
+        {
+            if (_cards == null || cardIndex < 0 || cardIndex >= _cards.Length)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < 20; i++)
+            {
+                var card = _cards[cardIndex];
+                if (card != null && card.gameObject.activeSelf && card.sprite != null)
+                {
+                    return true;
+                }
+
+                await UniTask.Delay(TimeSpan.FromMilliseconds(50));
+            }
+
+            return false;
+        }
+
+        private int ResolveCardIndex(string suit)
+        {
+            if (_cards == null || _cards.Length == 0)
+            {
+                return 0;
+            }
+
+            if (_viewModel == null)
+            {
+                return Mathf.Clamp(_lastCount - 1, 0, _cards.Length - 1);
+            }
+
+            var normalized = string.IsNullOrWhiteSpace(suit) ? string.Empty : suit.Trim().ToLowerInvariant();
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                var suits = _viewModel.Suits.CurrentValue;
+                for (var index = 0; index < suits.Count && index < _cards.Length; index++)
+                {
+                    if (string.Equals(suits[index], normalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return index;
+                    }
+                }
+            }
+
+            var fallback = _viewModel.Suits.CurrentValue.Count - 1;
+            return Mathf.Clamp(fallback, 0, _cards.Length - 1);
         }
 
         private async UniTask PlaySetCompleteSequenceAsync()
@@ -404,6 +615,27 @@ namespace Features.PlayerHandSystemImpl.View
                 sequence.Join(_rectTransform.DOAnchorPos(start + new Vector2(0f, ReceiveOffsetY), TransferFadeDuration));
             }
             await sequence.AsyncWaitForCompletion();
+        }
+
+        private sealed class ExternalAnimationScope : IDisposable
+        {
+            private RankStackView _owner;
+
+            public ExternalAnimationScope(RankStackView owner)
+            {
+                _owner = owner;
+            }
+
+            public void Dispose()
+            {
+                if (_owner == null)
+                {
+                    return;
+                }
+
+                _owner.EndExternalAnimation();
+                _owner = null;
+            }
         }
     }
 }

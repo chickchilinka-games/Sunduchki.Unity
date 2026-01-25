@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using Modules.Lobby.Data;
 using Modules.Lobby.Services;
 using R3;
@@ -17,6 +19,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
         private readonly CompositeDisposable _subscriptions = new();
 
         private PlayerHandPresenterState _activeState;
+        private CancellationTokenSource _gameEndedStopCts;
 
         public PlayerHandPresenter(PlayerHandPresenterFactory factory, LobbyService lobbyService)
         {
@@ -33,13 +36,14 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 .Subscribe(_ => StartState())
                 .AddTo(_subscriptions);
 
-            _lobbyService.GameEnded
-                .Subscribe(_ => StopState())
-                .AddTo(_subscriptions);
-
             _lobbyService.State
                 .Subscribe(state =>
                 {
+                    if (state.Status == LobbyStatus.Ended)
+                    {
+                        return;
+                    }
+
                     if (state.Status != LobbyStatus.Started && !state.Started)
                     {
                         StopState();
@@ -68,6 +72,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 return;
             }
 
+            CancelGameEndedStop();
             var state = _factory.CreateState();
             if (!state.Start())
             {
@@ -86,12 +91,46 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 return;
             }
 
+            CancelGameEndedStop();
             var state = _activeState;
             _activeState = null;
             _stateProperty.Value = null;
 
             state.Stop();
             state.Dispose();
+        }
+
+        private void ScheduleStopAfterGameEnded()
+        {
+            CancelGameEndedStop();
+            _gameEndedStopCts = new CancellationTokenSource();
+            StopStateAfterDelay(_gameEndedStopCts.Token).Forget();
+        }
+
+        private async UniTaskVoid StopStateAfterDelay(CancellationToken token)
+        {
+            try
+            {
+                await UniTask.Delay(TimeSpan.FromSeconds(1.2), cancellationToken: token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            StopState();
+        }
+
+        private void CancelGameEndedStop()
+        {
+            if (_gameEndedStopCts == null)
+            {
+                return;
+            }
+
+            _gameEndedStopCts.Cancel();
+            _gameEndedStopCts.Dispose();
+            _gameEndedStopCts = null;
         }
     }
 }

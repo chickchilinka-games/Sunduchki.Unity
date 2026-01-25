@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -43,6 +44,7 @@ namespace Features.AppLifecycle.States.Game.Substates
 
             if (_windowSystem != null)
             {
+                await UniTask.Delay(TimeSpan.FromSeconds(1), cancellationToken: token);
                 var isWin = ResolveIsWin();
                 var reason = payload.Reason;
                 if (string.IsNullOrWhiteSpace(reason) && payload.Result != null &&

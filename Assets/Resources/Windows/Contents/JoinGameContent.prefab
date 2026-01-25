@@ -412,6 +412,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: InputField
       objectReference: {fileID: 0}
+    - target: {fileID: 8578202601993814290, guid: 9b81f44947bc6914e9bcb7dfdef1a2cd, type: 3}
+      propertyPath: m_text
+      value: Enter game id...
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []

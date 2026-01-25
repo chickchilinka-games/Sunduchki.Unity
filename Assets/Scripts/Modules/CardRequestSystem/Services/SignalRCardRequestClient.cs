@@ -59,7 +59,24 @@ namespace Modules.CardRequestSystem.Services
                     return;
                 }
 
-                listener.OnCardsTransferred(payload.FromPlayerId, payload.ToPlayerId, payload.Rank, payload.Count);
+                var mapped = new List<CardTransferCardData>();
+                var cards = payload.Cards ?? Array.Empty<TransferCardDto>();
+                foreach (var card in cards)
+                {
+                    if (string.IsNullOrWhiteSpace(card?.Rank) || string.IsNullOrWhiteSpace(card?.Suit))
+                    {
+                        continue;
+                    }
+
+                    mapped.Add(new CardTransferCardData(card.Rank, card.Suit));
+                }
+
+                if (mapped.Count == 0)
+                {
+                    return;
+                }
+
+                listener.OnCardsTransferred(payload.PlayerId, payload.Destination, mapped);
             });
 
             connection.On<NoCardsResponseDto>("NoCardsResponse", payload =>
@@ -125,10 +142,16 @@ namespace Modules.CardRequestSystem.Services
 
         private sealed class CardsTransferredDto
         {
-            public string FromPlayerId { get; set; }
-            public string ToPlayerId { get; set; }
+            public string PlayerId { get; set; }
+            public string Destination { get; set; }
+            public TransferCardDto[] Cards { get; set; }
+        }
+
+        private sealed class TransferCardDto
+        {
             public string Rank { get; set; }
-            public int Count { get; set; }
+            public string Suit { get; set; }
+            public string BonusType { get; set; }
         }
 
         private sealed class NoCardsResponseDto

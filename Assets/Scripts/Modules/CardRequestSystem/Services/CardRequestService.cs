@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Modules.CardRequestSystem.Data;
 using Modules.CardRequestSystem.Interfaces;
 using Modules.CardRequestSystem.Model;
@@ -27,18 +28,23 @@ namespace Modules.CardRequestSystem.Services
                 target,
                 rank,
                 0,
+                Array.Empty<CardTransferCardData>(),
                 DateTime.UtcNow);
             _model.SetState(_model.Current.Next(evt));
         }
 
-        public void RegisterTransfer(string from, string to, string rank, int count)
+        public void RegisterTransfer(string from, string to, IReadOnlyList<CardTransferCardData> cards)
         {
+            var cardList = cards ?? Array.Empty<CardTransferCardData>();
+            var rank = cardList.Count > 0 ? cardList[0].Rank : string.Empty;
+            var count = cardList.Count;
             var evt = new CardRequestEvent(
                 CardRequestEventType.Transferred,
                 from,
                 to,
                 rank,
                 count,
+                cardList,
                 DateTime.UtcNow);
             _model.SetState(_model.Current.Next(evt));
         }
@@ -51,6 +57,7 @@ namespace Modules.CardRequestSystem.Services
                 target,
                 rank,
                 0,
+                Array.Empty<CardTransferCardData>(),
                 DateTime.UtcNow);
             _model.SetState(_model.Current.Next(evt));
         }

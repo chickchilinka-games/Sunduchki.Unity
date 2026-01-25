@@ -6,6 +6,8 @@ using Features.PlayerHandSystemImpl.Interfaces;
 using Features.PlayerHandSystemImpl.ViewModel;
 using Modules.BonusSystem.Config;
 using Modules.BonusSystem.Services;
+using Modules.CardRequestSystem.Data;
+using Modules.CardRequestSystem.Interfaces;
 using Modules.CardRequestSystem.Services;
 using Modules.DefenseDecisionSystem.Data;
 using Modules.DefenseDecisionSystem.Services;
@@ -29,6 +31,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
         private readonly LobbyService _lobbyService;
         private readonly TurnSequenceService _turnService;
         private readonly CardRequestCommandService _cardRequestService;
+        private readonly ICardRequestService _cardRequestState;
         private readonly BonusActionService _bonusService;
         private readonly DefenseDecisionService _defenseService;
         private readonly ITargetPlayerSelector _targetSelector;
@@ -40,6 +43,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
             LobbyService lobbyService,
             TurnSequenceService turnService,
             CardRequestCommandService cardRequestService,
+            ICardRequestService cardRequestState,
             BonusActionService bonusService,
             DefenseDecisionService defenseService,
             ITargetPlayerSelector targetSelector,
@@ -50,6 +54,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
             _lobbyService = lobbyService ?? throw new ArgumentNullException(nameof(lobbyService));
             _turnService = turnService ?? throw new ArgumentNullException(nameof(turnService));
             _cardRequestService = cardRequestService ?? throw new ArgumentNullException(nameof(cardRequestService));
+            _cardRequestState = cardRequestState ?? throw new ArgumentNullException(nameof(cardRequestState));
             _bonusService = bonusService ?? throw new ArgumentNullException(nameof(bonusService));
             _defenseService = defenseService ?? throw new ArgumentNullException(nameof(defenseService));
             _targetSelector = targetSelector ?? throw new ArgumentNullException(nameof(targetSelector));
@@ -64,6 +69,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 _lobbyService,
                 _turnService,
                 _cardRequestService,
+                _cardRequestState,
                 _bonusService,
                 _defenseService,
                 _targetSelector,
@@ -81,17 +87,22 @@ namespace Features.PlayerHandSystemImpl.Presenters
         private readonly LobbyService _lobbyService;
         private readonly TurnSequenceService _turnService;
         private readonly CardRequestCommandService _cardRequestService;
+        private readonly ICardRequestService _cardRequestState;
         private readonly DefenseDecisionService _defenseService;
         private readonly ObservableList<StandardCardViewModel> _standardCards = new();
         private readonly Dictionary<string, StandardCardViewModel> _standardByRank = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<StandardCardViewModel, IDisposable> _pressSubscriptions = new();
         private readonly Subject<Unit> _handChanged = new();
+        private readonly Subject<CardRequestEvent> _cardRequested = new();
+        private readonly Subject<CardRequestEvent> _cardTransferred = new();
         private readonly BonusHandPresenterState _bonusPresenter;
 
         private IDisposable _handSubscription;
         private IDisposable _turnSubscription;
         private IDisposable _defenseSubscription;
         private IDisposable _chestSubscription;
+        private IDisposable _cardRequestSubscription;
+        private int _lastCardRequestSequence = -1;
         private bool _isLocalTurn;
         private bool _isDefenseActive;
         private string _defenseRank = string.Empty;
@@ -99,12 +110,15 @@ namespace Features.PlayerHandSystemImpl.Presenters
         public IReadOnlyObservableList<StandardCardViewModel> StandardCards => _standardCards;
         public IReadOnlyObservableList<BonusCardViewModel> BonusCards => _bonusPresenter.BonusCards;
         public Observable<Unit> HandChanged => _handChanged;
+        public Observable<CardRequestEvent> CardRequested => _cardRequested;
+        public Observable<CardRequestEvent> CardTransferred => _cardTransferred;
 
         public PlayerHandPresenterState(
             PlayerHandService playerHandService,
             LobbyService lobbyService,
             TurnSequenceService turnService,
             CardRequestCommandService cardRequestService,
+            ICardRequestService cardRequestState,
             BonusActionService bonusService,
             DefenseDecisionService defenseService,
             ITargetPlayerSelector targetSelector,
@@ -115,6 +129,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
             _lobbyService = lobbyService ?? throw new ArgumentNullException(nameof(lobbyService));
             _turnService = turnService ?? throw new ArgumentNullException(nameof(turnService));
             _cardRequestService = cardRequestService ?? throw new ArgumentNullException(nameof(cardRequestService));
+            _cardRequestState = cardRequestState ?? throw new ArgumentNullException(nameof(cardRequestState));
             _defenseService = defenseService ?? throw new ArgumentNullException(nameof(defenseService));
             _bonusPresenter = new BonusHandPresenterState(
                 bonusService,
@@ -152,6 +167,9 @@ namespace Features.PlayerHandSystemImpl.Presenters
             _chestSubscription = _lobbyService.ChestUpdated
                 .Subscribe(payload => OnSetCompleted(payload, localPlayerId));
 
+            _cardRequestSubscription = _cardRequestState.State
+                .Subscribe(ForwardCardRequestEvent);
+
             if (!_bonusPresenter.Start(localPlayerId))
             {
                 return false;
@@ -169,6 +187,9 @@ namespace Features.PlayerHandSystemImpl.Presenters
             _defenseSubscription = null;
             _chestSubscription?.Dispose();
             _chestSubscription = null;
+            _cardRequestSubscription?.Dispose();
+            _cardRequestSubscription = null;
+            _lastCardRequestSequence = -1;
             _bonusPresenter.Stop();
             ClearViewModels();
         }
@@ -351,6 +372,26 @@ namespace Features.PlayerHandSystemImpl.Presenters
             if (_standardByRank.TryGetValue(rankKey, out var viewModel))
             {
                 viewModel.MarkSetCompleted();
+            }
+        }
+
+        private void ForwardCardRequestEvent(CardRequestState state)
+        {
+            if (!state.HasEvent || state.Sequence == _lastCardRequestSequence)
+            {
+                return;
+            }
+
+            _lastCardRequestSequence = state.Sequence;
+            var evt = state.LastEvent;
+            switch (evt.EventType)
+            {
+                case CardRequestEventType.Requested:
+                    _cardRequested.OnNext(evt);
+                    break;
+                case CardRequestEventType.Transferred:
+                    _cardTransferred.OnNext(evt);
+                    break;
             }
         }
 

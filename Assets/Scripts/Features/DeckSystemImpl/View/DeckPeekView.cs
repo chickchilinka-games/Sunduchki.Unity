@@ -22,7 +22,7 @@ namespace Features.DeckSystemImpl.View
 
         private IDeckService _deckService;
         private LobbyService _lobbyService;
-        private StandardCardViewPool _standardPool;
+        private RankStackViewPool _standardPool;
         private BonusCardViewPool _bonusPool;
         private IDisposable _subscription;
         private readonly List<ViewEntry> _entries = new();
@@ -32,7 +32,7 @@ namespace Features.DeckSystemImpl.View
         public void Construct(
             IDeckService deckService,
             LobbyService lobbyService,
-            StandardCardViewPool standardPool,
+            RankStackViewPool standardPool,
             BonusCardViewPool bonusPool)
         {
             _deckService = deckService ?? throw new ArgumentNullException(nameof(deckService));
@@ -190,10 +190,10 @@ namespace Features.DeckSystemImpl.View
         {
             private readonly Component _view;
             private readonly IDisposable _viewModel;
-            private readonly StandardCardViewPool _standardPool;
+            private readonly RankStackViewPool _standardPool;
             private readonly BonusCardViewPool _bonusPool;
 
-            public ViewEntry(Component view, IDisposable viewModel, StandardCardViewPool standardPool)
+            public ViewEntry(Component view, IDisposable viewModel, RankStackViewPool standardPool)
             {
                 _view = view;
                 _viewModel = viewModel;
@@ -211,7 +211,7 @@ namespace Features.DeckSystemImpl.View
             {
                 switch (_view)
                 {
-                    case StandardCardView standard:
+                    case RankStackView standard:
                         standard.ResetView();
                         _standardPool?.Despawn(standard);
                         break;

@@ -52,16 +52,6 @@ namespace Modules.DeckSystem.Services
                 listener.OnDeckConfigured(payload.RemainingCards, payload.TotalCards);
             });
 
-            connection.On<StandardCardDrawnDto>("DrewStandardFromDeck", payload =>
-            {
-                if (payload == null)
-                {
-                    return;
-                }
-
-                listener.OnStandardCardDrawn(payload.PlayerId, new DeckCardData(payload.Rank, payload.Suit));
-            });
-
             connection.On<BonusCardDrawnDto>("DrewBonusFromDeck", payload =>
             {
                 if (payload == null)
@@ -155,13 +145,6 @@ namespace Modules.DeckSystem.Services
         {
             public int? RemainingCards { get; set; }
             public int? TotalCards { get; set; }
-        }
-
-        private sealed class StandardCardDrawnDto
-        {
-            public string PlayerId { get; set; }
-            public string Rank { get; set; }
-            public string Suit { get; set; }
         }
 
         private sealed class BonusCardDrawnDto

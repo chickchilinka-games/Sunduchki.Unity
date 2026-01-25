@@ -12,5 +12,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bf649e6c724a78d4faf5dc079848827e, type: 3}
   m_Name: GameHubConfig
   m_EditorClassIdentifier: 
-  _hubUrl: http://sunduchki.online/game/hub/game
+  _hubUrl: http://localhost:5000/game/hub/game
   _accessToken: 

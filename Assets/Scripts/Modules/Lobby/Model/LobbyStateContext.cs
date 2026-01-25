@@ -133,13 +133,12 @@ namespace Modules.Lobby.Model
 
         public void OnPlayerLeft(string playerId)
         {
-            _model.RemovePlayer(playerId);
-            _model.MutateState(state => state.WithStatus(LobbyStatus.Waiting));
-            EvaluateReadyToStart();
-
             var state = _model.CurrentState;
             if (!state.Started || state.Status == LobbyStatus.Ended)
             {
+                _model.RemovePlayer(playerId);
+                _model.MutateState(state => state.WithStatus(LobbyStatus.Waiting));
+                EvaluateReadyToStart();
                 return;
             }
 

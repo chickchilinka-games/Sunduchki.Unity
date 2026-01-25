@@ -17,6 +17,8 @@ namespace Modules.PlayerHand.Interfaces
 
         void NotifyBonusUsed(string playerId, BonusCardData card);
 
+        void NotifyCardsReceived(string playerId, string source, IReadOnlyList<StandardCardData> standardCards, IReadOnlyList<BonusCardData> bonusCards);
+
         void ClearHand(string playerId);
 
         void ResetAll();

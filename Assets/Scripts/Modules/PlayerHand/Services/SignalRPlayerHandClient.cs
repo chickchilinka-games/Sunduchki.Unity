@@ -58,16 +58,6 @@ namespace Modules.PlayerHand.Services
                 listener.OnStandardSnapshot(playerId, mapped);
             });
 
-            connection.On<StandardCardDrawnDto>("DrewStandardFromDeck", payload =>
-            {
-                if (payload == null)
-                {
-                    return;
-                }
-
-                listener.OnStandardCardAdded(payload.PlayerId, new StandardCardData(payload.Rank, payload.Suit));
-            });
-
             connection.On<BonusCardChangedDto>("BonusCardAddedToHand", payload =>
             {
                 if (payload == null)
@@ -86,6 +76,33 @@ namespace Modules.PlayerHand.Services
                 }
 
                 listener.OnBonusCardRemoved(payload.PlayerId, new BonusCardData(payload.BonusType));
+            });
+
+            connection.On<CardsReceivedDto>("CardsReceived", payload =>
+            {
+                if (payload == null)
+                {
+                    return;
+                }
+
+                var standard = new List<StandardCardData>();
+                var bonus = new List<BonusCardData>();
+                if (payload.Cards != null)
+                {
+                    foreach (var card in payload.Cards)
+                    {
+                        if (!string.IsNullOrWhiteSpace(card?.BonusType))
+                        {
+                            bonus.Add(new BonusCardData(card.BonusType));
+                        }
+                        else if (!string.IsNullOrWhiteSpace(card?.Rank) && !string.IsNullOrWhiteSpace(card?.Suit))
+                        {
+                            standard.Add(new StandardCardData(card.Rank, card.Suit));
+                        }
+                    }
+                }
+
+                listener.OnCardsReceived(payload.PlayerId, payload.Source ?? string.Empty, standard, bonus);
             });
         }
 
@@ -133,17 +150,25 @@ namespace Modules.PlayerHand.Services
         }
 
         [Serializable]
-        private sealed class StandardCardDrawnDto
-        {
-            public string PlayerId { get; set; }
-            public string Rank { get; set; }
-            public string Suit { get; set; }
-        }
-
-        [Serializable]
         private sealed class BonusCardChangedDto
         {
             public string PlayerId { get; set; }
+            public string BonusType { get; set; }
+        }
+
+        [Serializable]
+        private sealed class CardsReceivedDto
+        {
+            public string PlayerId { get; set; }
+            public string Source { get; set; }
+            public TransferCardDto[] Cards { get; set; }
+        }
+
+        [Serializable]
+        private sealed class TransferCardDto
+        {
+            public string Rank { get; set; }
+            public string Suit { get; set; }
             public string BonusType { get; set; }
         }
     }

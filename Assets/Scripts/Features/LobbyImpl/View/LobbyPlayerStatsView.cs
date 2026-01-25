@@ -1,6 +1,7 @@
 using System;
 using Cysharp.Threading.Tasks;
 using Modules.Players.Services;
+using Modules.TurnSystem.Services;
 using R3;
 using TMPro;
 using UnityEngine;
@@ -15,16 +16,22 @@ namespace Features.LobbyImpl.View
     {
         [SerializeField] private TMP_Text _nameLabel;
         [SerializeField] private TMP_Text _chestCountLabel;
+        [SerializeField] private TMP_Text _turnLabel;
         [SerializeField] private string _emptyName = "--";
+        [SerializeField] private string _yourTurnText = "Your turn";
+        [SerializeField] private string _opponentTurnText = "Opponent's turn";
 
         public string CurrentPlayerId { get; private set; }
         private PlayerRosterService _rosterService;
+        private TurnSequenceService _turnService;
         private IDisposable _subscription;
+        private IDisposable _turnSubscription;
 
         [Inject]
-        public void Construct(PlayerRosterService rosterService)
+        public void Construct(PlayerRosterService rosterService, TurnSequenceService turnService)
         {
             _rosterService = rosterService ?? throw new ArgumentNullException(nameof(rosterService));
+            _turnService = turnService ?? throw new ArgumentNullException(nameof(turnService));
         }
 
         private void OnEnable()
@@ -36,18 +43,31 @@ namespace Features.LobbyImpl.View
 
             _subscription = _rosterService.Players
                 .Subscribe(_ => UpdateNameFromRoster());
+
+            if (_turnService != null)
+            {
+                _turnSubscription = _turnService.State
+                    .Subscribe(UpdateTurnLabel);
+                UpdateTurnLabel(_turnService.State.CurrentValue);
+            }
         }
 
         private void OnDisable()
         {
             _subscription?.Dispose();
             _subscription = null;
+            _turnSubscription?.Dispose();
+            _turnSubscription = null;
         }
 
         public void BindPlayerId(string playerId)
         {
             CurrentPlayerId = string.IsNullOrWhiteSpace(playerId) ? null : playerId;
             UpdateNameFromRoster();
+            if (_turnService != null)
+            {
+                UpdateTurnLabel(_turnService.State.CurrentValue);
+            }
 
             // Reset chest count display until we receive a specific value for this slot.
             SetChestCount(null);
@@ -97,6 +117,29 @@ namespace Features.LobbyImpl.View
                     .ContinueWith(player => SetName(player != null ? player.Value.Name : _emptyName))
                     .Forget();
             }
+        }
+
+        private void UpdateTurnLabel(Modules.TurnSystem.Data.TurnState state)
+        {
+            if (_turnLabel == null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(CurrentPlayerId) ||
+                string.IsNullOrWhiteSpace(state.CurrentPlayerId))
+            {
+                _turnLabel.text = string.Empty;
+                return;
+            }
+
+            if (!string.Equals(CurrentPlayerId, state.CurrentPlayerId, StringComparison.Ordinal))
+            {
+                _turnLabel.text = string.Empty;
+                return;
+            }
+
+            _turnLabel.text = state.IsLocalTurn ? _yourTurnText : _opponentTurnText;
         }
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.Lobby.Config;
@@ -104,6 +105,58 @@ namespace Modules.Lobby.Providers
                 dto.TotalCards);
         }
 
+        public async UniTask<MatchmakingResult> SearchMatchAsync(MatchmakingOptions options, CancellationToken cancellationToken = default)
+        {
+            var resolvedToken = ResolveAccessToken();
+            if (string.IsNullOrWhiteSpace(resolvedToken))
+            {
+                throw new ArgumentException("Matchmaking requires an authentication token.", nameof(options));
+            }
+
+            var uri = BuildUri("/api/matchmaking/search", null);
+            var requestDto = new MatchmakingRequestDto
+            {
+                Deck = (int)options.Deck,
+                StartingHand = options.StartingHand,
+                Mode = string.IsNullOrWhiteSpace(options.Mode) ? "classic" : options.Mode
+            };
+
+            var payload = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(requestDto));
+            using var request = BuildPostRequest(uri, resolvedToken, payload);
+            await request.SendWebRequest().ToUniTask(cancellationToken: cancellationToken);
+            EnsureSuccess(request, "search match");
+
+            var responsePayload = request.downloadHandler.text;
+            var dto = JsonConvert.DeserializeObject<MatchmakingResponseDto>(responsePayload);
+            if (dto == null || string.IsNullOrWhiteSpace(dto.PlayerId) || string.IsNullOrWhiteSpace(dto.GameId))
+            {
+                throw new LobbyApiException(HttpStatusCode.OK, responsePayload, "Lobby API returned invalid matchmaking response.");
+            }
+
+            var players = new List<LobbyPlayerInfo>();
+            if (dto.Players != null)
+            {
+                foreach (var player in dto.Players)
+                {
+                    if (player == null)
+                        continue;
+
+                    var id = player.ResolveId();
+                    if (string.IsNullOrWhiteSpace(id))
+                        continue;
+
+                    players.Add(new LobbyPlayerInfo(id, false));
+                }
+            }
+
+            return new MatchmakingResult(
+                dto.GameId,
+                dto.PlayerId,
+                players.ToArray(),
+                dto.DeckCount,
+                dto.TotalCards);
+        }
+
         public async UniTask StartGameAsync(string gameId, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(gameId))
@@ -140,11 +193,12 @@ namespace Modules.Lobby.Providers
             return builder.Uri.ToString();
         }
 
-        private static UnityWebRequest BuildPostRequest(string uri, string accessToken)
+        private static UnityWebRequest BuildPostRequest(string uri, string accessToken, byte[] payload = null)
         {
+            payload ??= EmptyPayload;
             var request = new UnityWebRequest(uri, UnityWebRequest.kHttpVerbPOST)
             {
-                uploadHandler = new UploadHandlerRaw(EmptyPayload),
+                uploadHandler = new UploadHandlerRaw(payload),
                 downloadHandler = new DownloadHandlerBuffer()
             };
             request.SetRequestHeader("Content-Type", "application/json");
@@ -211,6 +265,36 @@ namespace Modules.Lobby.Providers
 
             public string ResolveId() => !string.IsNullOrWhiteSpace(Id) ? Id : LegacyId;
 
+        }
+
+        private sealed class MatchmakingRequestDto
+        {
+            [JsonProperty("deck")]
+            public int Deck { get; set; }
+
+            [JsonProperty("startingHand")]
+            public int StartingHand { get; set; }
+
+            [JsonProperty("mode")]
+            public string Mode { get; set; }
+        }
+
+        private sealed class MatchmakingResponseDto
+        {
+            [JsonProperty("gameId")]
+            public string GameId { get; set; }
+
+            [JsonProperty("playerId")]
+            public string PlayerId { get; set; }
+
+            [JsonProperty("players")]
+            public PlayerDto[] Players { get; set; }
+
+            [JsonProperty("deckCount")]
+            public int DeckCount { get; set; }
+
+            [JsonProperty("totalCards")]
+            public int TotalCards { get; set; }
         }
     }
 }

@@ -44,6 +44,15 @@ namespace Modules.PlayerHand.Services
             _stateWriter.RemoveBonusCard(playerId, card);
         }
 
+        public void OnCardsReceived(
+            string playerId,
+            string source,
+            IReadOnlyList<StandardCardData> standardCards,
+            IReadOnlyList<BonusCardData> bonusCards)
+        {
+            _stateWriter.NotifyCardsReceived(playerId, source, standardCards, bonusCards);
+        }
+
         public void ResetState()
         {
             _stateWriter.ResetAll();

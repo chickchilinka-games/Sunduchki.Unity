@@ -1,5 +1,6 @@
 using System;
 using Cysharp.Threading.Tasks;
+using DG.Tweening;
 using Features.PlayerHandSystemImpl.ViewModel;
 using Features.BonusSystemImpl.View;
 using Features.WindowSystemImpl.Templates;
@@ -16,8 +17,12 @@ namespace Features.PlayerHandSystemImpl.View
     public class BonusCardView : MonoBehaviour
     {
         private const string BonusSpriteFormat = "Art/Cards/Bonus/bonus_{0}";
+        private const float ReceiveOffsetY = -32f;
+        private const float ReceiveDuration = 0.28f;
 
         [SerializeField] private Image _icon;
+        [SerializeField] private RectTransform _visualRoot;
+        [SerializeField] private CanvasGroup _visualCanvasGroup;
         [SerializeField] private Button _button;
         [SerializeField] private Button _infoButton;
         [SerializeField] private CanvasGroup _canvasGroup;
@@ -27,6 +32,10 @@ namespace Features.PlayerHandSystemImpl.View
         private BonusCardViewModel _viewModel;
         private ManagedAsset<Sprite> _iconHandle;
         private CompositeDisposable _bindings;
+        private RectTransform _iconRect;
+        private Vector2 _iconBaseAnchored;
+        private RectTransform _visualRect;
+        private Vector2 _visualBaseAnchored;
 
         [Inject]
         public void Construct(AssetService assetService, WindowSystem windowSystem)
@@ -40,6 +49,27 @@ namespace Features.PlayerHandSystemImpl.View
             if (_button == null)
             {
                 _button = GetComponent<Button>();
+            }
+
+            if (_visualRoot == null)
+            {
+                _visualRoot = transform as RectTransform;
+            }
+
+            if (_visualRoot != null)
+            {
+                _visualRect = _visualRoot;
+                _visualBaseAnchored = _visualRect.anchoredPosition;
+                if (_visualCanvasGroup == null)
+                {
+                    _visualCanvasGroup = _visualRoot.GetComponent<CanvasGroup>();
+                }
+            }
+
+            if (_icon != null)
+            {
+                _iconRect = _icon.rectTransform;
+                _iconBaseAnchored = _iconRect.anchoredPosition;
             }
         }
 
@@ -160,6 +190,63 @@ namespace Features.PlayerHandSystemImpl.View
             _bindings?.Dispose();
             _bindings = null;
             _viewModel = null;
+        }
+
+        public string BonusType => _viewModel?.BonusCardType ?? string.Empty;
+
+        public async UniTask PlayReceiveFromAsync(RectTransform source)
+        {
+            if (_visualRect == null || source == null)
+            {
+                return;
+            }
+
+            if (_icon == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < 12 && (_icon.sprite == null || !_icon.enabled); i++)
+            {
+                await UniTask.Delay(TimeSpan.FromMilliseconds(50));
+            }
+
+            if (_icon.sprite == null)
+            {
+                return;
+            }
+
+            await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate);
+
+            DOTween.Kill(_visualRect);
+            _visualBaseAnchored = _visualRect.anchoredPosition;
+            var targetWorld = _visualRect.position;
+            _visualRect.position = source.position + new Vector3(0f, ReceiveOffsetY, 0f);
+
+            if (_visualCanvasGroup == null)
+            {
+                _visualCanvasGroup = _canvasGroup;
+            }
+
+            _icon.enabled = true;
+            var baseAlpha = _visualCanvasGroup != null ? _visualCanvasGroup.alpha : 1f;
+            if (_visualCanvasGroup != null)
+            {
+                _visualCanvasGroup.alpha = 0f;
+            }
+
+            var sequence = DOTween.Sequence();
+            sequence.Append(_visualRect.DOMove(targetWorld, ReceiveDuration).SetEase(Ease.OutQuad));
+            if (_visualCanvasGroup != null)
+            {
+                sequence.Join(_visualCanvasGroup.DOFade(baseAlpha, ReceiveDuration));
+            }
+            await sequence.AsyncWaitForCompletion();
+            _visualRect.anchoredPosition = _visualBaseAnchored;
+            if (_visualCanvasGroup != null)
+            {
+                _visualCanvasGroup.alpha = baseAlpha;
+            }
         }
 
         private void OnInfoClicked()

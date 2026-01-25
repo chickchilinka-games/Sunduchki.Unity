@@ -14,5 +14,7 @@ namespace Modules.PlayerHand.Interfaces
         void OnBonusCardAdded(string playerId, BonusCardData card);
 
         void OnBonusCardRemoved(string playerId, BonusCardData card);
+
+        void OnCardsReceived(string playerId, string source, IReadOnlyList<StandardCardData> standardCards, IReadOnlyList<BonusCardData> bonusCards);
     }
 }

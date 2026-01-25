@@ -4,14 +4,14 @@ using Features.PlayerHandSystemImpl.ViewModel;
 
 namespace Features.PlayerHandSystemImpl.Factory
 {
-    public sealed class StandardCardViewPool : ViewPoolBase<StandardCardViewModel, StandardCardView>
+    public sealed class RankStackViewPool : ViewPoolBase<StandardCardViewModel, RankStackView>
     {
-        protected override void OnViewReinitialize(StandardCardViewModel data, StandardCardView item)
+        protected override void OnViewReinitialize(StandardCardViewModel data, RankStackView item)
         {
             item.Initialize(data).Forget();
         }
 
-        protected override void OnViewDespawned(StandardCardView item)
+        protected override void OnViewDespawned(RankStackView item)
         {
             item.ResetView();
         }
