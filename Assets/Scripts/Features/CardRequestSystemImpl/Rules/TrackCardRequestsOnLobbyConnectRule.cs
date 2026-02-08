@@ -20,6 +20,9 @@ namespace Features.CardRequestSystemImpl.Rules
         private readonly IGameHubConfigProvider _configProvider;
         private readonly CompositeDisposable _disposables = new();
         private CancellationTokenSource _cts;
+        private bool _isTracking;
+        private string _trackedGameId = string.Empty;
+        private string _trackedPlayerId = string.Empty;
 
         public TrackCardRequestsOnLobbyConnectRule(
             LobbyStateContext lobbyState,
@@ -45,10 +48,16 @@ namespace Features.CardRequestSystemImpl.Rules
             switch (state.Status)
             {
                 case LobbyStatus.Started:
-                    BeginTracking().Forget();
+                    if (ShouldStartTracking(state))
+                    {
+                        BeginTracking().Forget();
+                    }
                     break;
                 default:
-                    StopTracking().Forget();
+                    if (_isTracking)
+                    {
+                        StopTracking().Forget();
+                    }
                     break;
             }
         }
@@ -81,6 +90,9 @@ namespace Features.CardRequestSystemImpl.Rules
 
                 await _commandService.ConnectAsync(commandOptions, _cts.Token);
                 await _trackingService.StartAsync(options, _cts.Token);
+                _isTracking = true;
+                _trackedGameId = options.GameId ?? string.Empty;
+                _trackedPlayerId = options.PlayerId ?? string.Empty;
             }
             catch (OperationCanceledException)
             {
@@ -88,6 +100,9 @@ namespace Features.CardRequestSystemImpl.Rules
             catch (Exception ex)
             {
                 Debug.LogError($"[CardRequestSystem] Failed to subscribe to request events: {ex.Message}");
+                _isTracking = false;
+                _trackedGameId = string.Empty;
+                _trackedPlayerId = string.Empty;
             }
         }
 
@@ -99,6 +114,9 @@ namespace Features.CardRequestSystemImpl.Rules
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = null;
+            _isTracking = false;
+            _trackedGameId = string.Empty;
+            _trackedPlayerId = string.Empty;
         }
 
         public void Dispose()
@@ -106,6 +124,23 @@ namespace Features.CardRequestSystemImpl.Rules
             _disposables.Dispose();
             _cts?.Cancel();
             _cts?.Dispose();
+        }
+
+        private bool ShouldStartTracking(LobbyState state)
+        {
+            var config = _lobbyState.Data;
+            if (string.IsNullOrWhiteSpace(config.GameId) || string.IsNullOrWhiteSpace(config.PlayerId))
+            {
+                return false;
+            }
+
+            if (!_isTracking)
+            {
+                return true;
+            }
+
+            return !string.Equals(_trackedGameId, config.GameId, StringComparison.Ordinal) ||
+                   !string.Equals(_trackedPlayerId, config.PlayerId, StringComparison.Ordinal);
         }
     }
 }

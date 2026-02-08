@@ -69,17 +69,10 @@ namespace Features.CardRequestSystemImpl.View
             var rank = NormalizeRank(evt.Rank);
             var suits = isFromLocal ? ResolveTransferSuits(evt, rank, localPlayerId, allowFallback: false) : new List<string>();
 
-            var count = Mathf.Max(1, evt.Count);
-            if (isFromLocal)
+            var count = evt.Count > 0 ? evt.Count : 1;
+            if (isFromLocal && count <= 0)
             {
-                if (evt.Cards != null && evt.Cards.Count > 0)
-                {
-                    count = evt.Cards.Count;
-                }
-                else
-                {
-                    count = 1;
-                }
+                count = evt.Cards != null && evt.Cards.Count > 0 ? evt.Cards.Count : 1;
             }
             var transferScope = new TransferScope();
             try
@@ -91,7 +84,14 @@ namespace Features.CardRequestSystemImpl.View
 
                 if (isFromLocal && suits.Count > 0)
                 {
-                    count = suits.Count;
+                    if (count > suits.Count)
+                    {
+                        count = suits.Count;
+                    }
+                    else if (count < suits.Count)
+                    {
+                        suits = suits.Take(count).ToList();
+                    }
                 }
 
                 for (var i = 0; i < count; i++)
@@ -278,6 +278,7 @@ namespace Features.CardRequestSystemImpl.View
         private List<string> ResolveTransferSuits(CardRequestEvent evt, string rank, string localPlayerId, bool allowFallback)
         {
             var result = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var cards = evt.Cards;
             if (cards != null && cards.Count > 0)
             {
@@ -289,7 +290,7 @@ namespace Features.CardRequestSystemImpl.View
                     }
 
                     var suit = NormalizeSuit(card.Suit);
-                    if (!string.IsNullOrWhiteSpace(suit))
+                    if (!string.IsNullOrWhiteSpace(suit) && seen.Add(suit))
                     {
                         result.Add(suit);
                     }

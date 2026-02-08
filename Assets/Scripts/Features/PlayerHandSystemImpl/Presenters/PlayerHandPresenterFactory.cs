@@ -111,6 +111,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
         private string _localPlayerId = string.Empty;
         private bool _awaitingAskResponse;
         private CancellationTokenSource _awaitingAskCts;
+        private DateTime _lastAskResolvedAt = DateTime.MinValue;
 
         public IReadOnlyObservableList<StandardCardViewModel> StandardCards => _standardCards;
         public IReadOnlyObservableList<BonusCardViewModel> BonusCards => _bonusPresenter.BonusCards;
@@ -219,6 +220,11 @@ namespace Features.PlayerHandSystemImpl.Presenters
             SyncStandardCards(state.StandardCards);
             _bonusPresenter.SyncBonusCards(state.BonusCards);
             _handChanged.OnNext(Unit.Default);
+
+            if (_awaitingAskResponse)
+            {
+                ClearAwaitingAsk();
+            }
         }
 
         private void SyncStandardCards(IReadOnlyList<StandardCardData> cards)
@@ -431,10 +437,11 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 return;
             }
 
-            if (_awaitingAskResponse && !string.Equals(evt.Source, "deck", StringComparison.OrdinalIgnoreCase))
+            if (_awaitingAskResponse)
             {
                 ClearAwaitingAsk();
             }
+            MarkAskResolved();
         }
 
         private void UpdatePendingAskState(CardRequestEvent evt)
@@ -458,6 +465,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 if (string.Equals(evt.AskerId, _localPlayerId, StringComparison.Ordinal))
                 {
                     ClearAwaitingAsk();
+                    MarkAskResolved();
                 }
                 return;
             }
@@ -467,12 +475,19 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 if (string.Equals(evt.TargetId, _localPlayerId, StringComparison.Ordinal))
                 {
                     ClearAwaitingAsk();
+                    MarkAskResolved();
                 }
             }
         }
 
         private void SetAwaitingAsk()
         {
+            var now = DateTime.UtcNow;
+            if (now - _lastAskResolvedAt < TimeSpan.FromMilliseconds(500))
+            {
+                return;
+            }
+
             _awaitingAskResponse = true;
             UpdateStandardUsability();
 
@@ -494,6 +509,11 @@ namespace Features.PlayerHandSystemImpl.Presenters
             _awaitingAskCts?.Cancel();
             _awaitingAskCts?.Dispose();
             _awaitingAskCts = null;
+        }
+
+        private void MarkAskResolved()
+        {
+            _lastAskResolvedAt = DateTime.UtcNow;
         }
 
         private async UniTaskVoid AutoClearAwaitingAsync(CancellationToken token)

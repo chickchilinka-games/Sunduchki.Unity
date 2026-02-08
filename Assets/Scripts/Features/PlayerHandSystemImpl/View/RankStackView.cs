@@ -175,6 +175,11 @@ namespace Features.PlayerHandSystemImpl.View
                     card.sprite = handle.Asset;
                     card.enabled = card.sprite != null;
                     card.gameObject.SetActive(card.sprite != null);
+                    if (card.sprite != null)
+                    {
+                        var current = card.color;
+                        card.color = new Color(current.r, current.g, current.b, 1f);
+                    }
                 }
                 catch (Exception ex)
                 {

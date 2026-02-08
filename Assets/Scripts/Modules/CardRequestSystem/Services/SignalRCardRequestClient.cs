@@ -60,6 +60,7 @@ namespace Modules.CardRequestSystem.Services
                 }
 
                 var mapped = new List<CardTransferCardData>();
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var cards = payload.Cards ?? Array.Empty<TransferCardDto>();
                 foreach (var card in cards)
                 {
@@ -68,7 +69,11 @@ namespace Modules.CardRequestSystem.Services
                         continue;
                     }
 
-                    mapped.Add(new CardTransferCardData(card.Rank, card.Suit));
+                    var key = $"{card.Rank}:{card.Suit}";
+                    if (seen.Add(key))
+                    {
+                        mapped.Add(new CardTransferCardData(card.Rank, card.Suit));
+                    }
                 }
 
                 if (mapped.Count == 0)

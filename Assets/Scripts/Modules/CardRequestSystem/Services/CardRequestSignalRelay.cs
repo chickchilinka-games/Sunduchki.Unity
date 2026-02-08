@@ -11,6 +11,8 @@ namespace Modules.CardRequestSystem.Services
     {
         private readonly ICardRequestStateWriter _stateWriter;
         private readonly IDefenseDecisionPromptWriter _defensePromptWriter;
+        private string _lastTransferKey = string.Empty;
+        private DateTime _lastTransferAt = DateTime.MinValue;
 
         public CardRequestSignalRelay(ICardRequestStateWriter stateWriter, IDefenseDecisionPromptWriter defensePromptWriter)
         {
@@ -25,7 +27,13 @@ namespace Modules.CardRequestSystem.Services
 
         public void OnCardsTransferred(string from, string to, IReadOnlyList<CardTransferCardData> cards)
         {
-            _stateWriter.RegisterTransfer(from, to, cards ?? Array.Empty<CardTransferCardData>());
+            var cardList = cards ?? Array.Empty<CardTransferCardData>();
+            if (IsDuplicateTransfer(from, to, cardList))
+            {
+                return;
+            }
+
+            _stateWriter.RegisterTransfer(from, to, cardList);
         }
 
         public void OnNoCardsResponse(string from, string target, string rank)
@@ -48,6 +56,36 @@ namespace Modules.CardRequestSystem.Services
         {
             _stateWriter.Reset();
             _defensePromptWriter?.ClearPrompt();
+        }
+
+        private bool IsDuplicateTransfer(string from, string to, IReadOnlyList<CardTransferCardData> cards)
+        {
+            if (cards == null || cards.Count == 0)
+            {
+                return false;
+            }
+
+            var key = BuildTransferKey(from, to, cards);
+            var now = DateTime.UtcNow;
+            if (key == _lastTransferKey && (now - _lastTransferAt).TotalMilliseconds < 2000)
+            {
+                return true;
+            }
+
+            _lastTransferKey = key;
+            _lastTransferAt = now;
+            return false;
+        }
+
+        private static string BuildTransferKey(string from, string to, IReadOnlyList<CardTransferCardData> cards)
+        {
+            var parts = new List<string> { from ?? string.Empty, to ?? string.Empty, cards.Count.ToString() };
+            foreach (var card in cards)
+            {
+                parts.Add($"{card.Rank}:{card.Suit}");
+            }
+
+            return string.Join("|", parts);
         }
     }
 }
