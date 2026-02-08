@@ -127,7 +127,11 @@ namespace Modules.Lobby.Model
         {
             var info = CreatePlayerInfo(playerId, IsLocal(playerId));
             _model.UpsertPlayer(info);
-            _model.MutateState(state => state.WithStatus(LobbyStatus.Waiting).ClearError());
+            var state = _model.CurrentState;
+            if (!state.Started && state.Status != LobbyStatus.Ended)
+            {
+                _model.MutateState(s => s.WithStatus(LobbyStatus.Waiting).ClearError());
+            }
             EvaluateReadyToStart();
         }
 
@@ -191,6 +195,7 @@ namespace Modules.Lobby.Model
         {
             ResetChestCounts();
             _model.MutateState(state => state.WithStatus(LobbyStatus.Started).WithStarted(true));
+            Debug.Log($"[Lobby] OnGameStarted applied. gameId={_data.GameId}, deck={_model.CurrentState.DeckCount}, total={_model.CurrentState.TotalCards}");
             _gameStarted.OnNext(new LobbyGameStartedPayload(
                 _data.GameId,
                 _model.CurrentState.DeckCount,

@@ -1,25 +1,22 @@
+using System;
 using System.IO;
-using System.Reflection;
 using ICVR.Tools;
 using MarrowMachine.Tools;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
-using Modules.Lobby.Config;
-using Modules.Profiles.Config;
-using Modules.SignalR.Config;
+using Modules.AuthenticationSystem.Config;
 
 namespace CI.Editor
 {
     public static class BuildMenu
     {
-        private const string ServerBaseUrl = "https://sunduchki.online";
-        private const string LocalGameBaseUrl = "http://localhost:5000/game";
+        private const string ServerAccountsBaseUrl = "https://sunduchki.online/accounts";
+        private const string ServerGameBaseUrl = "https://sunduchki.online/game";
         private const string LocalAccountsBaseUrl = "http://localhost:5092/accounts";
+        private const string LocalGameBaseUrl = "http://localhost:5000/game";
         private const string PreloaderScenePath = "Assets/Scenes/Preloader.unity";
-        private const string LobbyConfigPath = "Assets/Config/LobbyApiConfigProvider.asset";
-        private const string ProfileConfigPath = "Assets/Config/ProfileApiConfigProvider.asset";
-        private const string HubConfigPath = "Assets/Config/GameHubConfig.asset";
+        private const string BaseConfigPath = "Assets/Config/BaseUrlConfig.asset";
 
         [MenuItem("Custom/CI/Build Standalone", false, 1)]
         public static void BuildStandalone()
@@ -42,41 +39,46 @@ namespace CI.Editor
             }
         }
 
+        public static void BuildWebGL()
+        { 
+            CIBuilder.PerformWebGLBuild();
+        }
+
+        [MenuItem("Custom/CI/Build Server WebGL", false, 4)]
+        public static void BuildServerWebGL()
+        {
+            BuildWebGLWithConfig(ServerAccountsBaseUrl, ServerGameBaseUrl);
+        }
+        
+        [MenuItem("Custom/CI/Build Local WebGL", false, 5)]
+        public static void BuildLocalWebGL()
+        {
+            BuildWebGLWithConfig(LocalAccountsBaseUrl, LocalGameBaseUrl);
+        }
+        
         [MenuItem("Custom/CI/Build Server Standalone", false, 2)]
         public static void BuildServerStandalone()
         {
-            BuildStandaloneWithConfig(
-                $"{ServerBaseUrl}/game",
-                $"{ServerBaseUrl}/accounts",
-                $"{ServerBaseUrl}/game/hub/game");
+            BuildStandaloneWithConfig(ServerAccountsBaseUrl, ServerGameBaseUrl);
         }
 
         [MenuItem("Custom/CI/Build Local Standalone", false, 3)]
         public static void BuildLocalStandalone()
         {
-            BuildStandaloneWithConfig(
-                LocalGameBaseUrl,
-                LocalAccountsBaseUrl,
-                $"{LocalGameBaseUrl}/hub/game");
+            BuildStandaloneWithConfig(LocalAccountsBaseUrl, LocalGameBaseUrl);
         }
 
         [MenuItem("Custom/Run/Run Server Game", false, 100)]
         public static void RunServerGame()
         {
-            ApplyConfigs(
-                $"{ServerBaseUrl}/game",
-                $"{ServerBaseUrl}/accounts",
-                $"{ServerBaseUrl}/game/hub/game");
+            ApplyConfigs(ServerAccountsBaseUrl, ServerGameBaseUrl);
             StartPlayMode();
         }
 
         [MenuItem("Custom/Run/Run Local Game", false, 101)]
         public static void RunLocalGame()
         {
-            ApplyConfigs(
-                LocalGameBaseUrl,
-                LocalAccountsBaseUrl,
-                $"{LocalGameBaseUrl}/hub/game");
+            ApplyConfigs(LocalAccountsBaseUrl, LocalGameBaseUrl);
             StartPlayMode();
         }
 
@@ -134,37 +136,17 @@ namespace CI.Editor
             return Path.Combine(Application.dataPath, relativePath);
         }
 
-        private static void ApplyConfigs(string lobbyBaseUrl, string profileBaseUrl, string hubUrl)
+        private static void ApplyConfigs(string accountsBaseUrl, string gameBaseUrl)
         {
-            var lobbyConfig = AssetDatabase.LoadAssetAtPath<LobbyApiConfigProviderAsset>(LobbyConfigPath);
-            if (lobbyConfig == null)
+            var baseConfig = AssetDatabase.LoadAssetAtPath<BaseUrlConfigAsset>(BaseConfigPath);
+            if (baseConfig == null)
             {
-                Debug.LogError($"[BuildMenu] LobbyApiConfig asset not found at {LobbyConfigPath}.");
+                Debug.LogError($"[BuildMenu] BaseUrlConfig asset not found at {BaseConfigPath}.");
             }
             else
             {
-                SetSerializedString(lobbyConfig, "_baseAddress", lobbyBaseUrl);
-            }
-
-            var profileConfig = AssetDatabase.LoadAssetAtPath<ProfileApiConfigProviderAsset>(ProfileConfigPath);
-            if (profileConfig == null)
-            {
-                Debug.LogError($"[BuildMenu] ProfileApiConfig asset not found at {ProfileConfigPath}.");
-            }
-            else
-            {
-                SetSerializedString(profileConfig, "_baseAddress", profileBaseUrl);
-            }
-
-            var hubConfig = AssetDatabase.LoadAssetAtPath<GameHubConfigProviderAsset>(HubConfigPath);
-            if (hubConfig == null)
-            {
-                Debug.LogError($"[BuildMenu] GameHubConfig asset not found at {HubConfigPath}.");
-            }
-            else
-            {
-                SetSerializedString(hubConfig, "_hubUrl", hubUrl);
-                ResetCachedHubUri(hubConfig);
+                SetSerializedString(baseConfig, "_accountsBaseUrl", accountsBaseUrl);
+                SetSerializedString(baseConfig, "_gameBaseUrl", gameBaseUrl);
             }
 
             AssetDatabase.SaveAssets();
@@ -186,13 +168,6 @@ namespace CI.Editor
             EditorUtility.SetDirty(asset);
         }
 
-        private static void ResetCachedHubUri(GameHubConfigProviderAsset asset)
-        {
-            var field = typeof(GameHubConfigProviderAsset)
-                .GetField("_cachedUri", BindingFlags.Instance | BindingFlags.NonPublic);
-            field?.SetValue(asset, null);
-        }
-
         private static void StartPlayMode()
         {
             if (!EditorApplication.isPlayingOrWillChangePlaymode)
@@ -209,10 +184,10 @@ namespace CI.Editor
             }
         }
 
-        private static void BuildStandaloneWithConfig(string lobbyBaseUrl, string profileBaseUrl, string hubUrl)
+        private static void BuildStandaloneWithConfig(string accountsBaseUrl, string gameBaseUrl)
         {
             var snapshot = CaptureConfigs();
-            ApplyConfigs(lobbyBaseUrl, profileBaseUrl, hubUrl);
+            ApplyConfigs(accountsBaseUrl, gameBaseUrl);
 
             try
             {
@@ -222,18 +197,46 @@ namespace CI.Editor
             {
                 if (snapshot != null)
                 {
-                    ApplyConfigs(snapshot.LobbyBaseUrl, snapshot.ProfileBaseUrl, snapshot.HubUrl);
+                    SetBaseUrlOverrides(snapshot);
                 }
             }
         }
 
+        private static void BuildWebGLWithConfig(string accountsBaseUrl, string gameBaseUrl)
+        {
+            var snapshot = CaptureConfigs();
+            ApplyConfigs(accountsBaseUrl, gameBaseUrl);
+            try
+            {
+                BuildWebGL();
+            }
+            finally
+            {
+                if (snapshot != null)
+                {
+                    SetBaseUrlOverrides(snapshot);
+                }
+            }
+        }
+
+        private static void SetBaseUrlOverrides(ConfigSnapshot snapshot)
+        {
+            var baseConfig = AssetDatabase.LoadAssetAtPath<BaseUrlConfigAsset>(BaseConfigPath);
+            if (baseConfig == null)
+            {
+                return;
+            }
+
+            SetSerializedString(baseConfig, "_accountsBaseUrl", snapshot.AccountsBaseUrl);
+            SetSerializedString(baseConfig, "_gameBaseUrl", snapshot.GameBaseUrl);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+        }
+
         private static ConfigSnapshot CaptureConfigs()
         {
-            var lobbyConfig = AssetDatabase.LoadAssetAtPath<LobbyApiConfigProviderAsset>(LobbyConfigPath);
-            var profileConfig = AssetDatabase.LoadAssetAtPath<ProfileApiConfigProviderAsset>(ProfileConfigPath);
-            var hubConfig = AssetDatabase.LoadAssetAtPath<GameHubConfigProviderAsset>(HubConfigPath);
-
-            if (lobbyConfig == null || profileConfig == null || hubConfig == null)
+            var baseConfig = AssetDatabase.LoadAssetAtPath<BaseUrlConfigAsset>(BaseConfigPath);
+            if (baseConfig == null)
             {
                 Debug.LogWarning("[BuildMenu] Config assets not found, restore after build is skipped.");
                 return null;
@@ -241,9 +244,8 @@ namespace CI.Editor
 
             return new ConfigSnapshot
             {
-                LobbyBaseUrl = GetSerializedString(lobbyConfig, "_baseAddress"),
-                ProfileBaseUrl = GetSerializedString(profileConfig, "_baseAddress"),
-                HubUrl = GetSerializedString(hubConfig, "_hubUrl")
+                AccountsBaseUrl = GetSerializedString(baseConfig, "_accountsBaseUrl"),
+                GameBaseUrl = GetSerializedString(baseConfig, "_gameBaseUrl")
             };
         }
 
@@ -256,9 +258,8 @@ namespace CI.Editor
 
         private sealed class ConfigSnapshot
         {
-            public string LobbyBaseUrl;
-            public string ProfileBaseUrl;
-            public string HubUrl;
+            public string AccountsBaseUrl;
+            public string GameBaseUrl;
         }
     }
 }

@@ -222,6 +222,8 @@ namespace Modules.AuthenticationSystem.Utils
             public const string DisplayName = "displayName";
             public const string Scopes = "scopes";
             public const string CustomParameters = "customParameters";
+            public const string InitData = "initData";
+            public const string DeviceId = "deviceId";
         }
     }
 }

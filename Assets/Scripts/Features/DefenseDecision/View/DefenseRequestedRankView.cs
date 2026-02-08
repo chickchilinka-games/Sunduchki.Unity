@@ -133,6 +133,10 @@ namespace Features.DefenseDecision.View
                     break;
                 case CardRequestEventType.Transferred:
                 case CardRequestEventType.Denied:
+                    if (!_isRequestActive)
+                    {
+                        ShowFallbackRequest(evt);
+                    }
                     _isRequestActive = false;
                     _requestedRank = string.Empty;
                     _askerId = string.Empty;
@@ -224,6 +228,16 @@ namespace Features.DefenseDecision.View
             _hideCts?.Cancel();
             _hideCts?.Dispose();
             _hideCts = null;
+        }
+
+        private void ShowFallbackRequest(CardRequestEvent evt)
+        {
+            _isRequestActive = true;
+            _requestedRank = "???";
+            _askerId = evt.AskerId ?? string.Empty;
+            UpdateDisplay();
+            _isRequestActive = false;
+            ScheduleHide();
         }
 
         private string ResolvePlayerName(string playerId)

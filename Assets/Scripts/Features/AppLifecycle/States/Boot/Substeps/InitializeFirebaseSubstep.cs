@@ -1,3 +1,4 @@
+#if !UNITY_WEBGL || UNITY_EDITOR
 using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -33,3 +34,4 @@ namespace Features.AppLifecycle.States.Boot.Substeps
         }
     }
 }
+#endif

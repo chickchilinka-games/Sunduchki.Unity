@@ -4,6 +4,7 @@ using Cysharp.Threading.Tasks;
 using Modules.Lobby.Data;
 using Modules.Lobby.Interfaces;
 using Modules.SignalR;
+using UnityEngine;
 
 namespace Modules.Lobby.Providers
 {
@@ -38,6 +39,7 @@ namespace Modules.Lobby.Providers
             RegisterHandlers(_connection, _listener);
 
             await _connection.StartAsync(cancellationToken);
+            Debug.Log($"[Lobby] SignalR connected. Hub={options.HubUri}");
         }
 
         public async UniTask JoinGameAsync(LobbySignalRJoinPayload payload, CancellationToken cancellationToken = default)
@@ -51,6 +53,7 @@ namespace Modules.Lobby.Providers
                 PlayerId = payload.PlayerId
             };
 
+            Debug.Log($"[Lobby] JoinGame invoke: gameId={request.GameId}, playerId={request.PlayerId}");
             await _connection.InvokeAsync("JoinGame", request, cancellationToken);
         }
 
@@ -114,14 +117,25 @@ namespace Modules.Lobby.Providers
                     return;
                 }
 
+                Debug.Log($"[Lobby] PlayerJoined received: {payload.PlayerId}");
                 listener.OnPlayerJoined(payload.PlayerId);
             });
 
-            connection.On<string>("PlayerLeft", listener.OnPlayerLeft);
-            connection.On("GameStarted", listener.OnGameStarted);
+            connection.On<string>("PlayerLeft", playerId =>
+            {
+                Debug.Log($"[Lobby] PlayerLeft received: {playerId}");
+                listener.OnPlayerLeft(playerId);
+            });
+
+            connection.On("GameStarted", () =>
+            {
+                Debug.Log("[Lobby] GameStarted received.");
+                listener.OnGameStarted();
+            });
 
             connection.On<GameEndedResultDto>("GameEnded", payload =>
             {
+                Debug.Log($"[Lobby] GameEnded received: winners={payload?.WinnerPlayerIds?.Count ?? 0}");
                 listener.OnGameEnded(payload ?? new GameEndedResultDto(
                     Array.Empty<GameEndedResultDto.PlayerChestResult>(),
                     Array.Empty<string>()));
@@ -134,6 +148,7 @@ namespace Modules.Lobby.Providers
                     return;
                 }
 
+                Debug.Log($"[Lobby] SetCompleted received: playerId={payload.PlayerId}, rank={payload.Rank}");
                 listener.OnSetCompleted(payload.PlayerId, payload.Rank);
             });
         }

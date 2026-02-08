@@ -13,7 +13,11 @@ namespace Modules.Profiles.Bootstrap
         {
             Container.Bind<IProfileApiClient>().To<RestProfileApiClient>().AsSingle();
             Container.Bind<ITokenProvider>().To<ProfileTokenProvider>().AsSingle().IfNotBound();
+#if UNITY_WEBGL && !UNITY_EDITOR
+            Container.Bind<IDisplayNameProvider>().To<BackendDisplayNameProvider>().AsSingle();
+#else
             Container.Bind<IDisplayNameProvider>().To<FirebaseDisplayNameProvider>().AsSingle();
+#endif
             Container.Bind<ProfileService>().AsSingle();
         }
     }

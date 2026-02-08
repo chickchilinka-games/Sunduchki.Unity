@@ -44,6 +44,7 @@ namespace Modules.DeckSystem.Rules
 
         private void OnLobbyStateChanged(LobbyState state)
         {
+            Debug.Log($"[DeckSystem] Lobby state changed: status={state.Status}, started={state.Started}");
             switch (state.Status)
             {
                 case LobbyStatus.Started:
@@ -82,6 +83,7 @@ namespace Modules.DeckSystem.Rules
                     config.PlayerId);
 
                 _subscription = await _signalClient.SubscribeAsync(options, _signalHandler, _cts.Token);
+                Debug.Log($"[DeckSystem] Subscribed to deck updates for {config.PlayerId}.");
             }
             catch (OperationCanceledException)
             {

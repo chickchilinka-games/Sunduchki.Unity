@@ -198,23 +198,4 @@ namespace Modules.SignalR
         }
     }
 }
-#else
-namespace Modules.SignalR
-{
-    internal sealed class DotNetSignalRConnection : ISignalRConnection
-    {
-        public UniTask StartAsync(CancellationToken cancellationToken = default) => UniTask.FromException(new PlatformNotSupportedException());
-        public UniTask InvokeAsync(string methodName, object payload, CancellationToken cancellationToken = default) => UniTask.FromException(new PlatformNotSupportedException());
-        public void On(string methodName, Action handler) => throw new PlatformNotSupportedException();
-        public void On<T>(string methodName, Action<T> handler) => throw new PlatformNotSupportedException();
-        public void On<T1, T2>(string methodName, Action<T1, T2> handler) => throw new PlatformNotSupportedException();
-        public void On<T1, T2, T3>(string methodName, Action<T1, T2, T3> handler) => throw new PlatformNotSupportedException();
-        public void On<T1, T2, T3, T4>(string methodName, Action<T1, T2, T3, T4> handler) => throw new PlatformNotSupportedException();
-        public void OnClosed(Action<Exception> handler) => throw new PlatformNotSupportedException();
-        public void OnReconnected(Action<string> handler) => throw new PlatformNotSupportedException();
-        public void RemoveHandler(string methodName) => throw new PlatformNotSupportedException();
-        public UniTask StopAsync(CancellationToken cancellationToken = default) => UniTask.CompletedTask;
-        public void Dispose() { }
-    }
-}
 #endif

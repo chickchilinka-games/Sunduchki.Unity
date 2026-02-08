@@ -131,7 +131,15 @@ namespace Modules.Lobby.Services
                     cancellationToken);
 
                 _state.SetConnected(true);
-                _state.MutateState(state => state.WithStatus(LobbyStatus.Waiting).ClearError());
+                _state.MutateState(state =>
+                {
+                    if (state.Started || state.Status == LobbyStatus.Ended)
+                    {
+                        return state;
+                    }
+
+                    return state.WithStatus(LobbyStatus.Waiting).ClearError();
+                });
                 _state.EvaluateReadyToStart();
             }
             catch (Exception ex)

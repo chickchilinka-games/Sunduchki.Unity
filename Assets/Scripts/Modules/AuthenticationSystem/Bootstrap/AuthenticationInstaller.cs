@@ -1,7 +1,5 @@
-using Modules.AuthenticationSystem.Adapters;
 using Modules.AuthenticationSystem.Entities;
 using Modules.AuthenticationSystem.Interfaces;
-using Modules.AuthenticationSystem.Providers;
 using Modules.AuthenticationSystem.Services;
 using UnityEngine;
 using Zenject;

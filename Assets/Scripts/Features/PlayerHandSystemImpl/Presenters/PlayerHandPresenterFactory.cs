@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Features.PlayerHandSystemImpl.Interfaces;
 using Features.PlayerHandSystemImpl.ViewModel;
@@ -102,10 +103,14 @@ namespace Features.PlayerHandSystemImpl.Presenters
         private IDisposable _defenseSubscription;
         private IDisposable _chestSubscription;
         private IDisposable _cardRequestSubscription;
+        private IDisposable _cardsReceivedSubscription;
         private int _lastCardRequestSequence = -1;
         private bool _isLocalTurn;
         private bool _isDefenseActive;
         private string _defenseRank = string.Empty;
+        private string _localPlayerId = string.Empty;
+        private bool _awaitingAskResponse;
+        private CancellationTokenSource _awaitingAskCts;
 
         public IReadOnlyObservableList<StandardCardViewModel> StandardCards => _standardCards;
         public IReadOnlyObservableList<BonusCardViewModel> BonusCards => _bonusPresenter.BonusCards;
@@ -152,6 +157,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 Debug.unityLogger.LogWarning("PlayerHand", "Cannot start PlayerHandPresenterState without a local player id.");
                 return false;
             }
+            _localPlayerId = localPlayerId;
 
             _handSubscription = _playerHandService
                 .ObserveHand(localPlayerId)
@@ -169,6 +175,9 @@ namespace Features.PlayerHandSystemImpl.Presenters
 
             _cardRequestSubscription = _cardRequestState.State
                 .Subscribe(ForwardCardRequestEvent);
+
+            _cardsReceivedSubscription = _playerHandService.CardsReceived
+                .Subscribe(OnCardsReceived);
 
             if (!_bonusPresenter.Start(localPlayerId))
             {
@@ -189,7 +198,13 @@ namespace Features.PlayerHandSystemImpl.Presenters
             _chestSubscription = null;
             _cardRequestSubscription?.Dispose();
             _cardRequestSubscription = null;
+            _cardsReceivedSubscription?.Dispose();
+            _cardsReceivedSubscription = null;
             _lastCardRequestSequence = -1;
+            _awaitingAskResponse = false;
+            _awaitingAskCts?.Cancel();
+            _awaitingAskCts?.Dispose();
+            _awaitingAskCts = null;
             _bonusPresenter.Stop();
             ClearViewModels();
         }
@@ -260,6 +275,10 @@ namespace Features.PlayerHandSystemImpl.Presenters
 
         private void ApplyPressable(bool isLocalTurn)
         {
+            if (isLocalTurn != _isLocalTurn)
+            {
+                ClearAwaitingAsk();
+            }
             _isLocalTurn = isLocalTurn;
             UpdateStandardUsability();
 
@@ -356,6 +375,10 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 var canPress = _isDefenseActive
                     ? string.Equals(viewModel.Rank, _defenseRank, StringComparison.OrdinalIgnoreCase)
                     : _isLocalTurn;
+                if (_awaitingAskResponse)
+                {
+                    canPress = false;
+                }
                 viewModel.SetPressable(canPress);
             }
         }
@@ -384,6 +407,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
 
             _lastCardRequestSequence = state.Sequence;
             var evt = state.LastEvent;
+            UpdatePendingAskState(evt);
             switch (evt.EventType)
             {
                 case CardRequestEventType.Requested:
@@ -392,6 +416,106 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 case CardRequestEventType.Transferred:
                     _cardTransferred.OnNext(evt);
                     break;
+            }
+        }
+
+        private void OnCardsReceived(CardsReceivedEvent evt)
+        {
+            if (string.IsNullOrWhiteSpace(_localPlayerId))
+            {
+                return;
+            }
+
+            if (!string.Equals(evt.PlayerId, _localPlayerId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (_awaitingAskResponse && !string.Equals(evt.Source, "deck", StringComparison.OrdinalIgnoreCase))
+            {
+                ClearAwaitingAsk();
+            }
+        }
+
+        private void UpdatePendingAskState(CardRequestEvent evt)
+        {
+            if (string.IsNullOrWhiteSpace(_localPlayerId))
+            {
+                return;
+            }
+
+            if (evt.EventType == CardRequestEventType.Requested)
+            {
+                if (string.Equals(evt.AskerId, _localPlayerId, StringComparison.Ordinal))
+                {
+                    SetAwaitingAsk();
+                }
+                return;
+            }
+
+            if (evt.EventType == CardRequestEventType.Denied)
+            {
+                if (string.Equals(evt.AskerId, _localPlayerId, StringComparison.Ordinal))
+                {
+                    ClearAwaitingAsk();
+                }
+                return;
+            }
+
+            if (evt.EventType == CardRequestEventType.Transferred)
+            {
+                if (string.Equals(evt.TargetId, _localPlayerId, StringComparison.Ordinal))
+                {
+                    ClearAwaitingAsk();
+                }
+            }
+        }
+
+        private void SetAwaitingAsk()
+        {
+            _awaitingAskResponse = true;
+            UpdateStandardUsability();
+
+            _awaitingAskCts?.Cancel();
+            _awaitingAskCts?.Dispose();
+            _awaitingAskCts = new CancellationTokenSource();
+            AutoClearAwaitingAsync(_awaitingAskCts.Token).Forget();
+        }
+
+        private void ClearAwaitingAsk()
+        {
+            if (!_awaitingAskResponse)
+            {
+                return;
+            }
+
+            _awaitingAskResponse = false;
+            UpdateStandardUsability();
+            _awaitingAskCts?.Cancel();
+            _awaitingAskCts?.Dispose();
+            _awaitingAskCts = null;
+        }
+
+        private async UniTaskVoid AutoClearAwaitingAsync(CancellationToken token)
+        {
+            try
+            {
+                await UniTask.Delay(TimeSpan.FromSeconds(5), cancellationToken: token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (_awaitingAskResponse)
+            {
+                _awaitingAskResponse = false;
+                UpdateStandardUsability();
             }
         }
 

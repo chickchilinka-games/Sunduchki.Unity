@@ -185,6 +185,19 @@ namespace Features.PlayerHandSystemImpl.View
             }
         }
 
+        public void SetTint(Color color)
+        {
+            if (_icon != null)
+            {
+                _icon.color = color;
+            }
+
+            if (_canvasGroup != null)
+            {
+                _canvasGroup.alpha = 1f;
+            }
+        }
+
         private void ResetBindings()
         {
             _bindings?.Dispose();

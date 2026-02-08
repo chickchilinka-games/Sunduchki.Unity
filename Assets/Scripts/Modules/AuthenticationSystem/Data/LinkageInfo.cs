@@ -5,7 +5,7 @@ namespace Modules.AuthenticationSystem.Data
     [Serializable]
     public sealed class LinkageInfo
     {
-        internal LinkageInfo(AuthType authType, string username, string email)
+        public LinkageInfo(AuthType authType, string username, string email)
         {
             AuthType = authType;
             Username = username;

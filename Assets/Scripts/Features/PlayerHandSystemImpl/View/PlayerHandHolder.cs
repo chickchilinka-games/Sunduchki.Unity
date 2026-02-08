@@ -127,6 +127,10 @@ namespace Features.PlayerHandSystemImpl.View
 
             _handChangedSubscription?.Dispose();
             _handChangedSubscription = null;
+            _cardRequestedSubscription?.Dispose();
+            _cardRequestedSubscription = null;
+            _cardTransferredSubscription?.Dispose();
+            _cardTransferredSubscription = null;
 
             _state = state;
             RenderLayout();
@@ -322,6 +326,10 @@ namespace Features.PlayerHandSystemImpl.View
             var rankKey = NormalizeRank(viewModel?.Rank);
             await WaitForTransferOutAsync(rankKey);
             await view.WaitForExternalAnimationsAsync();
+            if (!view.HasPendingSetComplete && !IsSetCompleteRank(rankKey))
+            {
+                await WaitForSetCompleteAsync(rankKey);
+            }
             if (IsRankTransferredOut(rankKey))
             {
                 view.MarkTransferredOut();
@@ -817,6 +825,26 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             return _pendingSetCompleteRanks.Contains(NormalizeRank(rank));
+        }
+
+        private async UniTask WaitForSetCompleteAsync(string rankKey)
+        {
+            if (string.IsNullOrWhiteSpace(rankKey))
+            {
+                return;
+            }
+
+            var elapsed = 0f;
+            while (elapsed < 0.5f)
+            {
+                if (IsSetCompleteRank(rankKey))
+                {
+                    return;
+                }
+
+                await UniTask.Delay(TimeSpan.FromMilliseconds(50));
+                elapsed += 0.05f;
+            }
         }
 
         private void ClearSetCompleteRank(string rank)

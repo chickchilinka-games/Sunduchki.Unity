@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Modules.SignalR.Config;
 using Zenject;
+using UnityEngine;
 
 namespace Modules.SignalR
 {
@@ -25,6 +26,7 @@ namespace Modules.SignalR
                 throw new ArgumentNullException(nameof(hubUri));
             }
 
+            Debug.Log($"[SignalR] Creating DotNet connection to {hubUri}");
             var resolvedToken = ResolveToken(accessToken);
             var builder = new HubConnectionBuilder()
                 .WithUrl(hubUri, options =>
@@ -49,17 +51,6 @@ namespace Modules.SignalR
             }
 
             return fallback ?? string.Empty;
-        }
-    }
-}
-#else
-namespace Modules.SignalR
-{
-    public sealed class DotNetSignalRConnectionFactory : ISignalRConnectionFactory
-    {
-        public ISignalRConnection Create(Uri hubUri, string accessToken)
-        {
-            throw new PlatformNotSupportedException("DotNet SignalR factory is not available on WebGL builds.");
         }
     }
 }

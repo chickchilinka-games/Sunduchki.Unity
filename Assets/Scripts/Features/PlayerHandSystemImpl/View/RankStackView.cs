@@ -27,6 +27,7 @@ namespace Features.PlayerHandSystemImpl.View
         private const float TransferFadeDuration = 0.2f;
         private const float SetCompleteFlashDuration = 0.08f;
         private const float SetCompleteFadeDuration = 0.2f;
+        private static readonly Color DisabledTint = new(0.65f, 0.65f, 0.65f, 1f);
 
         [SerializeField] private Image[] _cards;
         [SerializeField] private Button _button;
@@ -120,8 +121,9 @@ namespace Features.PlayerHandSystemImpl.View
             }
             if (_canvasGroup != null)
             {
-                _canvasGroup.alpha = canPress ? 1f : 0.45f;
+                _canvasGroup.alpha = 1f;
             }
+            ApplyTint(canPress ? Color.white : DisabledTint);
         }
 
         private async UniTask UpdateCardsAsync(IReadOnlyList<string> suits)
@@ -197,6 +199,8 @@ namespace Features.PlayerHandSystemImpl.View
                 _pendingSetComplete = false;
                 PlaySetCompleteAnimationAsync().Forget();
             }
+
+            ApplyTint(_button != null && _button.interactable ? Color.white : DisabledTint);
         }
 
         private void ReleaseCardSprites()
@@ -421,6 +425,11 @@ namespace Features.PlayerHandSystemImpl.View
             image.color = new Color(color.r, color.g, color.b, visible ? 1f : 0f);
         }
 
+        public void SetTint(Color color)
+        {
+            ApplyTint(color);
+        }
+
         public void PrepareReceive(string suit)
         {
             if (_cards == null || _cards.Length == 0)
@@ -591,6 +600,25 @@ namespace Features.PlayerHandSystemImpl.View
             sequence.Append(_canvasGroup.DOFade(1f, SetCompleteFlashDuration));
             sequence.Append(_canvasGroup.DOFade(0f, SetCompleteFadeDuration));
             await sequence.AsyncWaitForCompletion();
+        }
+
+        private void ApplyTint(Color color)
+        {
+            if (_cards == null)
+            {
+                return;
+            }
+
+            foreach (var card in _cards)
+            {
+                if (card == null)
+                {
+                    continue;
+                }
+
+                var current = card.color;
+                card.color = new Color(color.r, color.g, color.b, current.a);
+            }
         }
 
         private async UniTask PlayTransferRemovalSequenceAsync()

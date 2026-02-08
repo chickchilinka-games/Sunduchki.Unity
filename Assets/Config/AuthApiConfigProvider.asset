@@ -9,8 +9,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: bf649e6c724a78d4faf5dc079848827e, type: 3}
-  m_Name: GameHubConfig
+  m_Script: {fileID: 11500000, guid: a76f98d4c1f1f2a40ba995ceb6b19425, type: 3}
+  m_Name: AuthApiConfigProvider
   m_EditorClassIdentifier: 
-  _hubUrl: http://localhost:5000/game/hub/game
-  _accessToken: 
+  _baseConfig: {fileID: 11400000, guid: 915f69a8ac2945a7bfcbad5828a6e3a7, type: 2}
+  _relativePath: /accounts
+  _baseAddress: https://sunduchki.online/accounts

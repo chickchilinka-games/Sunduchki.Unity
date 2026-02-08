@@ -36,8 +36,8 @@ namespace Features.BonusSystemImpl.View
             "StealExtraOnSuccess",
             "SilentAsk"
         };
-        [SerializeField] private float _instantHideDelay = 0.6f;
-        [SerializeField] private float _defenseHideDelay = 0.6f;
+        [SerializeField] private float _instantHideDelay = 1.2f;
+        [SerializeField] private float _defenseHideDelay = 1.2f;
 
         private PlayerHandService _handService;
         private LobbyService _lobbyService;

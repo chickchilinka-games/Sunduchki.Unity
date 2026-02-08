@@ -139,6 +139,7 @@ namespace Features.DeckSystemImpl.View
 
                     var vm = new BonusCardViewModel(card.BonusType);
                     var view = _bonusPool.Spawn(_container, vm);
+                    view.SetTint(Color.white);
                     _entries.Add(new ViewEntry(view, vm, _bonusPool));
                 }
                 else
@@ -153,6 +154,7 @@ namespace Features.DeckSystemImpl.View
                     var suit = NormalizeSuit(card.Suit);
                     var vm = new StandardCardViewModel(rank, new[] { suit });
                     var view = _standardPool.Spawn(_container, vm);
+                    view.SetTint(Color.white);
                     _entries.Add(new ViewEntry(view, vm, _standardPool));
                 }
             }

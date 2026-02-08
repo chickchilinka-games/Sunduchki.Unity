@@ -1,0 +1,20 @@
+{
+    "name": "AuthenticationImpl.Firebase",
+    "rootNamespace": "",
+    "references": [
+        "Authentication",
+        "UniTask",
+        "AppleAuth"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [
+        "WebGL"
+    ],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

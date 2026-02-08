@@ -1,62 +1,47 @@
 mergeInto(LibraryManager.library, {
-    $sunduchkiSignalR: {
-        init: function () {
-            if (typeof Module.SunduchkiSignalR !== 'undefined') {
-                return;
-            }
+    $SunduchkiSignalRHelper: function () {
+        if (typeof Module === 'undefined') {
+            return null;
+        }
 
+        if (typeof Module.SunduchkiSignalR === 'undefined') {
             Module.SunduchkiSignalR = {
                 nextId: 1,
-                connections: {}
-            };
-        },
+                connections: {},
+                sendMessage: function (goName, payload) {
+                    var instance = typeof unityInstance !== 'undefined' ? unityInstance : Module;
+                    if (!instance || typeof instance.SendMessage !== 'function') {
+                        console.warn('[SignalR.jslib] Unity instance not found.');
+                        return;
+                    }
 
-        ensureClient: function () {
+                    try {
+                        instance.SendMessage(goName, 'OnSignalRMessage', payload || '');
+                    } catch (err) {
+                        console.warn('[SignalR.jslib] SendMessage failed:', err);
+                    }
+                },
+                sendEnvelope: function (handle, envelope) {
+                    envelope.connectionId = handle.id;
+                    Module.SunduchkiSignalR.sendMessage(handle.gameObjectName, JSON.stringify(envelope));
+                }
+            };
+        }
+
+        return Module.SunduchkiSignalR;
+    },
+
+    Sunduchki_SignalR_CreateConnection__deps: ['$SunduchkiSignalRHelper'],
+    Sunduchki_SignalR_CreateConnection: function (urlPtr, tokenPtr, hostPtr) {
+        try {
             if (typeof signalR === 'undefined' || !signalR.HubConnectionBuilder) {
                 throw new Error('signalR client is not available. Include @microsoft/signalr script.');
             }
-        },
 
-        getHandle: function (id) {
-            if (typeof Module.SunduchkiSignalR === 'undefined') {
-                return null;
+            var helper = SunduchkiSignalRHelper();
+            if (!helper) {
+                throw new Error('SignalR helper is not available.');
             }
-
-            return Module.SunduchkiSignalR.connections[id] || null;
-        },
-
-        removeHandle: function (id) {
-            if (typeof Module.SunduchkiSignalR === 'undefined') {
-                return;
-            }
-
-            delete Module.SunduchkiSignalR.connections[id];
-        },
-
-        sendMessage: function (goName, payload) {
-            var instance = typeof unityInstance !== 'undefined' ? unityInstance : (typeof Module !== 'undefined' ? Module : null);
-            if (!instance || typeof instance.SendMessage !== 'function') {
-                console.warn('[SignalR.jslib] Unity instance not found.');
-                return;
-            }
-
-            try {
-                instance.SendMessage(goName, 'OnSignalRMessage', payload || '');
-            } catch (err) {
-                console.warn('[SignalR.jslib] SendMessage failed:', err);
-            }
-        },
-
-        sendEnvelope: function (handle, envelope) {
-            envelope.connectionId = handle.id;
-            sunduchkiSignalR.sendMessage(handle.gameObjectName, JSON.stringify(envelope));
-        }
-    },
-
-    Sunduchki_SignalR_CreateConnection: function (urlPtr, tokenPtr, hostPtr) {
-        try {
-            sunduchkiSignalR.init();
-            sunduchkiSignalR.ensureClient();
         } catch (err) {
             console.error('[SignalR.jslib] Initialization failed:', err);
             return -1;
@@ -86,11 +71,11 @@ mergeInto(LibraryManager.library, {
             Module.SunduchkiSignalR.connections[id] = handle;
 
             connection.onclose(function (error) {
-                sunduchkiSignalR.sendEnvelope(handle, {
+                Module.SunduchkiSignalR.sendEnvelope(handle, {
                     type: 'closed',
                     error: error ? error.toString() : null
                 });
-                sunduchkiSignalR.removeHandle(id);
+                delete Module.SunduchkiSignalR.connections[id];
             });
 
             return id;
@@ -100,47 +85,53 @@ mergeInto(LibraryManager.library, {
         }
     },
 
+    Sunduchki_SignalR_Start__deps: ['$SunduchkiSignalRHelper'],
     Sunduchki_SignalR_Start: function (connectionId) {
-        var handle = sunduchkiSignalR.getHandle(connectionId);
+        var helper = SunduchkiSignalRHelper();
+        var handle = helper ? helper.connections[connectionId] : null;
         if (!handle) {
             return;
         }
 
         handle.connection.start()
             .then(function () {
-                sunduchkiSignalR.sendEnvelope(handle, { type: 'started' });
+                helper.sendEnvelope(handle, { type: 'started' });
             })
             .catch(function (err) {
-                sunduchkiSignalR.sendEnvelope(handle, {
+                helper.sendEnvelope(handle, {
                     type: 'startFailed',
                     error: err ? err.toString() : 'Unknown error'
                 });
             });
     },
 
+    Sunduchki_SignalR_Stop__deps: ['$SunduchkiSignalRHelper'],
     Sunduchki_SignalR_Stop: function (connectionId) {
-        var handle = sunduchkiSignalR.getHandle(connectionId);
+        var helper = SunduchkiSignalRHelper();
+        var handle = helper ? helper.connections[connectionId] : null;
         if (!handle) {
             return;
         }
 
         handle.connection.stop()
             .then(function () {
-                sunduchkiSignalR.sendEnvelope(handle, { type: 'stopped' });
+                helper.sendEnvelope(handle, { type: 'stopped' });
             })
             .catch(function (err) {
-                sunduchkiSignalR.sendEnvelope(handle, {
+                helper.sendEnvelope(handle, {
                     type: 'stopped',
                     error: err ? err.toString() : null
                 });
             })
             .finally(function () {
-                sunduchkiSignalR.removeHandle(connectionId);
+                delete helper.connections[connectionId];
             });
     },
 
+    Sunduchki_SignalR_RegisterHandler__deps: ['$SunduchkiSignalRHelper'],
     Sunduchki_SignalR_RegisterHandler: function (connectionId, handlerPtr) {
-        var handle = sunduchkiSignalR.getHandle(connectionId);
+        var helper = SunduchkiSignalRHelper();
+        var handle = helper ? helper.connections[connectionId] : null;
         if (!handle) {
             return;
         }
@@ -156,7 +147,7 @@ mergeInto(LibraryManager.library, {
 
         var callback = function () {
             var argsJson = JSON.stringify(Array.prototype.slice.call(arguments));
-            sunduchkiSignalR.sendEnvelope(handle, {
+            helper.sendEnvelope(handle, {
                 type: 'handler',
                 handler: handlerName,
                 args: argsJson
@@ -167,8 +158,10 @@ mergeInto(LibraryManager.library, {
         handle.connection.on(handlerName, callback);
     },
 
+    Sunduchki_SignalR_UnregisterHandler__deps: ['$SunduchkiSignalRHelper'],
     Sunduchki_SignalR_UnregisterHandler: function (connectionId, handlerPtr) {
-        var handle = sunduchkiSignalR.getHandle(connectionId);
+        var helper = SunduchkiSignalRHelper();
+        var handle = helper ? helper.connections[connectionId] : null;
         if (!handle) {
             return;
         }
@@ -187,8 +180,10 @@ mergeInto(LibraryManager.library, {
         delete handle.handlers[handlerName];
     },
 
+    Sunduchki_SignalR_Invoke__deps: ['$SunduchkiSignalRHelper'],
     Sunduchki_SignalR_Invoke: function (connectionId, requestIdPtr, methodPtr, argsJsonPtr) {
-        var handle = sunduchkiSignalR.getHandle(connectionId);
+        var helper = SunduchkiSignalRHelper();
+        var handle = helper ? helper.connections[connectionId] : null;
         if (!handle) {
             return;
         }
@@ -213,7 +208,7 @@ mergeInto(LibraryManager.library, {
 
         handle.connection.invoke.apply(handle.connection, [methodName].concat(argsArray))
             .then(function (result) {
-                sunduchkiSignalR.sendEnvelope(handle, {
+                helper.sendEnvelope(handle, {
                     type: 'invokeResult',
                     requestId: requestId,
                     success: true,
@@ -221,7 +216,7 @@ mergeInto(LibraryManager.library, {
                 });
             })
             .catch(function (err) {
-                sunduchkiSignalR.sendEnvelope(handle, {
+                helper.sendEnvelope(handle, {
                     type: 'invokeResult',
                     requestId: requestId,
                     success: false,

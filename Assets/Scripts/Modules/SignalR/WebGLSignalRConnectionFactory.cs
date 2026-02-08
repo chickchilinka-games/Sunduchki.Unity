@@ -1,6 +1,7 @@
 using System;
 using Modules.SignalR.Config;
 using Zenject;
+using UnityEngine;
 
 #if UNITY_WEBGL && !UNITY_EDITOR
 namespace Modules.SignalR
@@ -9,8 +10,8 @@ namespace Modules.SignalR
     {
         private ITokenProvider _tokenProvider;
 
-        [InjectOptional]
-        public void Construct(ITokenProvider tokenProvider)
+        [Inject]
+        public void Construct([InjectOptional]ITokenProvider tokenProvider)
         {
             _tokenProvider = tokenProvider;
         }
@@ -22,6 +23,7 @@ namespace Modules.SignalR
                 throw new ArgumentNullException(nameof(hubUri));
             }
 
+            Debug.Log($"[SignalR] Creating WebGL connection to {hubUri}");
             var host = WebGLSignalRBridgeHost.Instance;
             var resolvedToken = ResolveToken(accessToken);
             var connectionId = host.CreateConnection(hubUri.ToString(), resolvedToken);
@@ -44,17 +46,6 @@ namespace Modules.SignalR
             }
 
             return fallback ?? string.Empty;
-        }
-    }
-}
-#else
-namespace Modules.SignalR
-{
-    public sealed class WebGLSignalRConnectionFactory : ISignalRConnectionFactory
-    {
-        public ISignalRConnection Create(Uri hubUri, string accessToken)
-        {
-            throw new PlatformNotSupportedException("WebGL SignalR factory is available only in WebGL builds.");
         }
     }
 }

@@ -391,8 +391,8 @@ MonoBehaviour:
   - AskTwice
   - StealExtraOnSuccess
   - SilentAsk
-  _instantHideDelay: 0.6
-  _defenseHideDelay: 0.6
+  _instantHideDelay: 1.2
+  _defenseHideDelay: 1.2
 --- !u!1 &203844586
 GameObject:
   m_ObjectHideFlags: 0

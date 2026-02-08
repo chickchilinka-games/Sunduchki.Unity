@@ -12,4 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 783abacc2f6c4a81a8b48759fd693d81, type: 3}
   m_Name: LobbyApiConfigProvider
   m_EditorClassIdentifier: 
-  _baseAddress: http://localhost:5000/game
+  _baseConfig: {fileID: 11400000, guid: 915f69a8ac2945a7bfcbad5828a6e3a7, type: 2}
+  _relativePath: /game
+  _baseAddress: https://sunduchki.online/game

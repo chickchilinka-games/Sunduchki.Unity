@@ -28,7 +28,7 @@ namespace Features.AppLifecycle.Bootstrap
             Container.BindStateAsSingle<HomeState>();
             Container.BindStateAsSingle<LobbyState>();
             Container.BindStateAsSingle<GameState>();
-            
+
             InstallGameSubStates();
             InstallBootSubsteps();
             InstallHomeSubStates();
@@ -37,8 +37,9 @@ namespace Features.AppLifecycle.Bootstrap
         private void InstallBootSubsteps()
         {
             InstallBootStep<LoadInitialSceneStep>();
+#if !UNITY_WEBGL || UNITY_EDITOR
             InstallBootStep<InitializeFirebaseSubstep>();
-            InstallBootStep<LoadAppDataStep>();
+#endif
             InstallBootStep<AuthorizationSubstep>();
         }
 
@@ -51,10 +52,9 @@ namespace Features.AppLifecycle.Bootstrap
             Container.BindStateAsSingle<ResultsGameSubstate>();
             Container.BindStateAsSingle<WaitTurnGameSubstate>();
         }
-        
+
         private void InstallHomeSubStates()
         {
-            
         }
 
         private void InstallBootStep<TStep>() where TStep : ISubstep

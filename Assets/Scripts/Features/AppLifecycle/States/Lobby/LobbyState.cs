@@ -7,7 +7,7 @@ using Features.AppLifecycle.States.Home;
 using Features.LobbyImpl.View;
 using Features.WindowSystemImpl.Templates;
 using ICVR.Window;
-using Modules.Lobby.Config;
+using Modules.SignalR.Config;
 using Modules.Lobby.Services;
 using R3;
 using UniState;
@@ -17,18 +17,18 @@ namespace Features.AppLifecycle.States.Lobby
 {
     public class LobbyState : StateBase
     {
-        private readonly ILobbyApiConfigProvider _configProvider;
+        private readonly IGameHubConfigProvider _hubConfigProvider;
         private readonly LobbyService _lobbyService;
         private readonly LobbyFlowService _lobbyFlowService;
         private readonly WindowSystem _windowSystem;
 
         public LobbyState(
-            ILobbyApiConfigProvider configProvider,
+            IGameHubConfigProvider hubConfigProvider,
             LobbyService lobbyService,
             LobbyFlowService lobbyFlowService,
             WindowSystem windowSystem)
         {
-            _configProvider = configProvider;
+            _hubConfigProvider = hubConfigProvider;
             _lobbyService = lobbyService;
             _lobbyFlowService = lobbyFlowService;
             _windowSystem = windowSystem;
@@ -65,14 +65,12 @@ namespace Features.AppLifecycle.States.Lobby
                 return;
             }
 
-            var baseAddress = _configProvider?.GetConfig().BaseAddress;
-            if (baseAddress == null)
+            var hubUri = _hubConfigProvider?.GetHubUri();
+            if (hubUri == null)
             {
-                Debug.LogWarning("[LobbyState] Lobby API base address is not configured.");
+                Debug.LogWarning("[LobbyState] Hub URI is not configured.");
                 return;
             }
-
-            var hubUri = BuildHubUri(baseAddress, "/hub/game");
             try
             {
                 await _lobbyService.ConnectAsync(hubUri, token);
@@ -89,14 +87,5 @@ namespace Features.AppLifecycle.States.Lobby
             await _windowSystem.CloseWindowsWithContentAsync<LobbyContent>();
         }
 
-        private static Uri BuildHubUri(Uri baseAddress, string relativePath)
-        {
-            var builder = new UriBuilder(baseAddress);
-            var trimmedBasePath = builder.Path?.TrimEnd('/') ?? string.Empty;
-            var trimmedRelative = relativePath.TrimStart('/');
-            builder.Path = $"{trimmedBasePath}/{trimmedRelative}";
-            builder.Query = string.Empty;
-            return builder.Uri;
-        }
     }
 }

@@ -1,3 +1,4 @@
+#if !UNITY_WEBGL
 using System;
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
@@ -139,3 +140,4 @@ namespace Modules.AppData.Providers
         }
     }
 }
+#endif

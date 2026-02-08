@@ -9,6 +9,7 @@ namespace Modules.AuthenticationSystem.Data
         Anonymous = 1,
         Google = 2,
         Apple = 3,
-        Email = 4
+        Email = 4,
+        Telegram = 5
     }
 }

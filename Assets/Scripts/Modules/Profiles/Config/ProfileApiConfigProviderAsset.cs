@@ -1,4 +1,5 @@
 using System;
+using Modules.AuthenticationSystem.Config;
 using Modules.Profiles.Data;
 using UnityEngine;
 
@@ -8,15 +9,30 @@ namespace Modules.Profiles.Config
     public class ProfileApiConfigProviderAsset : ScriptableObject, IProfileApiConfigProvider
     {
         [SerializeField]
-        private string _baseAddress = "http://localhost:5092";
+        private BaseUrlConfigAsset _baseConfig;
+
+        [SerializeField, HideInInspector]
+        private string _baseAddress = "http://localhost:5092/accounts";
 
         public ProfileApiConfig GetConfig()
         {
-            var uri = Uri.TryCreate(_baseAddress, UriKind.Absolute, out var parsed)
-                ? parsed
-                : new Uri("http://localhost:5092");
+            var baseUri = ResolveBaseUri();
+            return new ProfileApiConfig(baseUri);
+        }
 
-            return new ProfileApiConfig(uri);
+        private Uri ResolveBaseUri()
+        {
+            if (_baseConfig != null)
+            {
+                return _baseConfig.GetAccountsBaseUri();
+            }
+
+            if (Uri.TryCreate(_baseAddress, UriKind.Absolute, out var parsed))
+            {
+                return parsed;
+            }
+
+            return new Uri("http://localhost:5092/accounts");
         }
     }
 }

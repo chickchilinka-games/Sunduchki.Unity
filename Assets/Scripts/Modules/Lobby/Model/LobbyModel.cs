@@ -25,7 +25,14 @@ namespace Modules.Lobby.Model
 
         public void MutateState(Func<LobbyState, LobbyState> updater)
         {
-            _state.Value = updater(_state.Value);
+            var current = _state.Value;
+            var next = updater(current);
+            if (current.Started && next.Started && next.Status == LobbyStatus.Waiting && current.Status == LobbyStatus.Started)
+            {
+                next = next.WithStatus(LobbyStatus.Started);
+            }
+
+            _state.Value = next;
         }
 
         public void SetPlayers(IEnumerable<LobbyPlayerInfo> players)

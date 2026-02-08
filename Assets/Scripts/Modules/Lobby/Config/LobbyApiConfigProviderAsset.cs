@@ -1,4 +1,5 @@
 using System;
+using Modules.AuthenticationSystem.Config;
 using Modules.Lobby.Data;
 using UnityEngine;
 
@@ -8,15 +9,30 @@ namespace Modules.Lobby.Config
     public class LobbyApiConfigProviderAsset : ScriptableObject, ILobbyApiConfigProvider
     {
         [SerializeField]
-        private string _baseAddress = "http://localhost:5000";
+        private BaseUrlConfigAsset _baseConfig;
+
+        [SerializeField, HideInInspector]
+        private string _baseAddress = "http://localhost:5000/game";
 
         public LobbyApiConfig GetConfig()
         {
-            var uri = Uri.TryCreate(_baseAddress, UriKind.Absolute, out var parsed)
-                ? parsed
-                : new Uri("http://localhost:5000");
+            var baseUri = ResolveBaseUri();
+            return new LobbyApiConfig(baseUri);
+        }
 
-            return new LobbyApiConfig(uri);
+        private Uri ResolveBaseUri()
+        {
+            if (_baseConfig != null)
+            {
+                return _baseConfig.GetGameBaseUri();
+            }
+
+            if (Uri.TryCreate(_baseAddress, UriKind.Absolute, out var parsed))
+            {
+                return parsed;
+            }
+
+            return new Uri("http://localhost:5000/game");
         }
     }
 }

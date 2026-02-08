@@ -43,6 +43,7 @@ namespace Modules.PlayerHand.Rules
 
         private void OnLobbyStateChanged(LobbyState state)
         {
+            UnityEngine.Debug.Log($"[PlayerHand] Lobby state changed: status={state.Status}, started={state.Started}");
             switch (state.Status)
             {
                 case LobbyStatus.Started:
@@ -59,6 +60,7 @@ namespace Modules.PlayerHand.Rules
             var config = _lobbyState.Data;
             if (string.IsNullOrWhiteSpace(config.GameId) || string.IsNullOrWhiteSpace(config.PlayerId))
             {
+                UnityEngine.Debug.LogWarning("[PlayerHand] Cannot start tracking: missing game or player id.");
                 return;
             }
 

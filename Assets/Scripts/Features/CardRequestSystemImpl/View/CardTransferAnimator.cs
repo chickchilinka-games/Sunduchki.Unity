@@ -67,9 +67,20 @@ namespace Features.CardRequestSystemImpl.View
             }
 
             var rank = NormalizeRank(evt.Rank);
-            var suits = isFromLocal ? ResolveTransferSuits(evt, rank, localPlayerId) : new List<string>();
+            var suits = isFromLocal ? ResolveTransferSuits(evt, rank, localPlayerId, allowFallback: false) : new List<string>();
 
             var count = Mathf.Max(1, evt.Count);
+            if (isFromLocal)
+            {
+                if (evt.Cards != null && evt.Cards.Count > 0)
+                {
+                    count = evt.Cards.Count;
+                }
+                else
+                {
+                    count = 1;
+                }
+            }
             var transferScope = new TransferScope();
             try
             {
@@ -78,12 +89,18 @@ namespace Features.CardRequestSystemImpl.View
                     _localHandHolder?.MarkRankTransferredOut(rank);
                 }
 
+                if (isFromLocal && suits.Count > 0)
+                {
+                    count = suits.Count;
+                }
+
                 for (var i = 0; i < count; i++)
                 {
                     if (isFromLocal)
                     {
-                        var suit = PickSuit(suits);
-                        await AnimateFromLocalAsync(rank, suit, i, transferScope);
+                        var hasSuit = suits.Count > 0;
+                        var suit = hasSuit ? PickSuit(suits) : PickSuitFallback();
+                        await AnimateFromLocalAsync(rank, suit, hasSuit, i, transferScope);
                     }
                     else
                     {
@@ -102,7 +119,7 @@ namespace Features.CardRequestSystemImpl.View
             }
         }
 
-        private async UniTask AnimateFromLocalAsync(string rank, string suit, int index, TransferScope transferScope)
+        private async UniTask AnimateFromLocalAsync(string rank, string suit, bool useSourceImage, int index, TransferScope transferScope)
         {
             var toAnchor = _opponentHandAnchor;
             if (toAnchor == null)
@@ -112,7 +129,8 @@ namespace Features.CardRequestSystemImpl.View
 
             Image sourceImage = null;
             Action restore = null;
-            if (_localHandHolder != null &&
+            if (useSourceImage &&
+                _localHandHolder != null &&
                 _localHandHolder.TryGetStandardCardImage(rank, suit, out sourceImage) &&
                 sourceImage != null)
             {
@@ -126,7 +144,6 @@ namespace Features.CardRequestSystemImpl.View
             if (spriteResult.Sprite == null)
             {
                 spriteResult.Handle?.Dispose();
-                restore?.Invoke();
                 return;
             }
 
@@ -137,7 +154,7 @@ namespace Features.CardRequestSystemImpl.View
             }
             finally
             {
-                restore?.Invoke();
+                // Keep the source hidden; it will be shown/removed by the hand snapshot.
             }
         }
 
@@ -219,6 +236,13 @@ namespace Features.CardRequestSystemImpl.View
             var view = Instantiate(_cardPrefab, _animationRoot);
             view.sprite = sprite;
             view.color = new Color(1f, 1f, 1f, 1f);
+            var canvas = view.GetComponent<Canvas>();
+            if (canvas == null)
+            {
+                canvas = view.gameObject.AddComponent<Canvas>();
+            }
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = 2000;
             var rect = view.rectTransform;
             rect.position = start;
 
@@ -251,7 +275,7 @@ namespace Features.CardRequestSystemImpl.View
             return new SpriteResult(handle?.Asset, handle);
         }
 
-        private List<string> ResolveTransferSuits(CardRequestEvent evt, string rank, string localPlayerId)
+        private List<string> ResolveTransferSuits(CardRequestEvent evt, string rank, string localPlayerId, bool allowFallback)
         {
             var result = new List<string>();
             var cards = evt.Cards;
@@ -277,7 +301,7 @@ namespace Features.CardRequestSystemImpl.View
                 return result;
             }
 
-            if (string.IsNullOrWhiteSpace(localPlayerId) || _handService == null)
+            if (!allowFallback || string.IsNullOrWhiteSpace(localPlayerId) || _handService == null)
             {
                 return new List<string>();
             }
@@ -323,6 +347,11 @@ namespace Features.CardRequestSystemImpl.View
                 return suit;
             }
 
+            return PickSuitFallback();
+        }
+
+        private static string PickSuitFallback()
+        {
             return SuitFallbacks[UnityEngine.Random.Range(0, SuitFallbacks.Length)];
         }
 

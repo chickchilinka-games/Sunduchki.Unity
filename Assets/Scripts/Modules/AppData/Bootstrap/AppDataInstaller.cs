@@ -11,7 +11,11 @@ namespace Modules.AppData.Bootstrap
         {
             Container.Bind<AppDataService>().AsSingle();
             Container.Bind<IAppDataCache>().To<PlayerPrefsAppDataCache>().AsSingle();
+            #if !UNITY_WEBGL
             Container.Bind<IAppDataProvider>().To<FirebaseAppDataProvider>().AsSingle();
+            #else 
+            Container.Bind<IAppDataProvider>().To<BackendAppDataAdapter>().AsSingle();
+            #endif
             Container.BindInterfacesTo<AppDataConsumersCollector>().AsSingle();
             Container.BindInterfacesTo<JsonSerializer>().AsSingle();
         }
