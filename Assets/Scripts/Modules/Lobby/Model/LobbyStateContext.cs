@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Modules.Lobby.Model
 {
-    public class LobbyStateContext : ILobbySignalRListener, IDisposable
+    internal class LobbyStateContext : ILobbySignalRListener, IDisposable
     {
         private readonly LobbyModel _model;
         private readonly Subject<IReadOnlyList<LobbyPlayerInfo>> _readyToStart = new();

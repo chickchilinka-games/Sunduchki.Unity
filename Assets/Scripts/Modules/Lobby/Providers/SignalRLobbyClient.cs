@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Modules.Lobby.Providers
 {
-    public class SignalRLobbyClient : ILobbySignalRClient
+    internal class SignalRLobbyClient : ILobbySignalRClient
     {
         private readonly ISignalRConnectionFactory _connectionFactory;
         private ISignalRConnection _connection;

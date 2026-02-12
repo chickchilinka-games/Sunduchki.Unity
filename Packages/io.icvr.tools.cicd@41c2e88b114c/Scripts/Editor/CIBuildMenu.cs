@@ -134,6 +134,12 @@ namespace ICVR.Tools
         {
             CIBuilder.PerformWindowsMonoBuild();
         }
+        
+        [MenuItem("Custom/CI/Build WebGL")]
+        private static void PerformWebgGLBuild()
+        {
+            CIBuilder.PerformWebGLBuild();
+        }
 
         [MenuItem("Custom/CI/Custom Setup", false, 0)]
         private static void ApplyCustomSetup()

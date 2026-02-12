@@ -1,136 +1,82 @@
 using System;
-using System.Threading;
-using Cysharp.Threading.Tasks;
-using Modules.Lobby.Data;
-using Modules.Lobby.Services;
+using Features.PlayerHandSystemImpl.Storage;
+using Features.PlayerHandSystemImpl.ViewModel;
+using Modules.PlayerHand.Data;
+using ObservableCollections;
 using R3;
 using Zenject;
 
 namespace Features.PlayerHandSystemImpl.Presenters
 {
     /// <summary>
-    /// Coordinates the lifetime of player-hand presenter state based on lobby game events.
+    /// Presenter that owns player-hand view-models and reacts to domain events.
     /// </summary>
     public sealed class PlayerHandPresenter : IInitializable, IDisposable
     {
-        private readonly PlayerHandPresenterFactory _factory;
-        private readonly LobbyService _lobbyService;
-        private readonly ReactiveProperty<PlayerHandPresenterState> _stateProperty = new(null);
+        private readonly PlayerHandPresentationContext _context;
+        private readonly RankStackViewModelStore _store;
         private readonly CompositeDisposable _subscriptions = new();
+        private readonly Subject<Unit> _handChanged = new();
 
-        private PlayerHandPresenterState _activeState;
-        private CancellationTokenSource _gameEndedStopCts;
-
-        public PlayerHandPresenter(PlayerHandPresenterFactory factory, LobbyService lobbyService)
+        public PlayerHandPresenter(
+            PlayerHandPresentationContext context,
+            RankStackViewModelStore store)
         {
-            _factory = factory ?? throw new ArgumentNullException(nameof(factory));
-            _lobbyService = lobbyService ?? throw new ArgumentNullException(nameof(lobbyService));
+            _context = context ?? throw new ArgumentNullException(nameof(context));
+            _store = store ?? throw new ArgumentNullException(nameof(store));
         }
 
-        public ReadOnlyReactiveProperty<PlayerHandPresenterState> State => _stateProperty;
-        public PlayerHandPresenterState CurrentState => _stateProperty.Value;
+        public ReadOnlyReactiveProperty<bool> IsActive => _context.IsActive;
+        public string LocalPlayerId => _context.LocalPlayerId.CurrentValue;
+        public IReadOnlyObservableList<RankStackViewModel> StandardCards => _store.Items;
+        public Observable<Unit> HandChanged => _handChanged;
 
         public void Initialize()
         {
-            _lobbyService.GameStarted
-                .Subscribe(_ => StartState())
-                .AddTo(_subscriptions);
-
-            _lobbyService.State
-                .Subscribe(state =>
+            _context.IsActive
+                .Subscribe(active =>
                 {
-                    if (state.Status == LobbyStatus.Ended)
+                    if (!active)
                     {
-                        return;
-                    }
-
-                    if (state.Status != LobbyStatus.Started && !state.Started)
-                    {
-                        StopState();
+                        ClearViewModels();
                     }
                 })
                 .AddTo(_subscriptions);
-
-            var state = _lobbyService.State.CurrentValue;
-            if (state.Status == LobbyStatus.Started || state.Started)
-            {
-                StartState();
-            }
         }
 
         public void Dispose()
         {
             _subscriptions.Dispose();
-            StopState();
-            _stateProperty.Dispose();
+            _handChanged.Dispose();
+            _store.Dispose();
         }
 
-        private void StartState()
+        public void SetLocalPlayerId(string localPlayerId)
         {
-            if (_activeState != null)
+            _context.SetLocalPlayerId(localPlayerId);
+        }
+
+        public void OnHandUpdated(PlayerHandState state)
+        {
+            if (!_context.IsActive.CurrentValue)
             {
                 return;
             }
 
-            CancelGameEndedStop();
-            var state = _factory.CreateState();
-            if (!state.Start())
-            {
-                state.Dispose();
-                return;
-            }
-
-            _activeState = state;
-            _stateProperty.Value = state;
+            UpdateHand(state);
         }
 
-        private void StopState()
+        private void UpdateHand(PlayerHandState state)
         {
-            if (_activeState == null)
-            {
-                return;
-            }
-
-            CancelGameEndedStop();
-            var state = _activeState;
-            _activeState = null;
-            _stateProperty.Value = null;
-
-            state.Stop();
-            state.Dispose();
+            _store.Sync(state.StandardCards);
+            _handChanged.OnNext(Unit.Default);
         }
 
-        private void ScheduleStopAfterGameEnded()
+        private void ClearViewModels()
         {
-            CancelGameEndedStop();
-            _gameEndedStopCts = new CancellationTokenSource();
-            StopStateAfterDelay(_gameEndedStopCts.Token).Forget();
+            _store.Clear();
+            _handChanged.OnNext(Unit.Default);
         }
 
-        private async UniTaskVoid StopStateAfterDelay(CancellationToken token)
-        {
-            try
-            {
-                await UniTask.Delay(TimeSpan.FromSeconds(1.2), cancellationToken: token);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-
-            StopState();
-        }
-
-        private void CancelGameEndedStop()
-        {
-            if (_gameEndedStopCts == null)
-            {
-                return;
-            }
-
-            _gameEndedStopCts.Cancel();
-            _gameEndedStopCts.Dispose();
-            _gameEndedStopCts = null;
-        }
     }
 }

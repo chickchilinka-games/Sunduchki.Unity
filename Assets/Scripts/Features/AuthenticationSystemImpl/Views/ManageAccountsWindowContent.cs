@@ -27,14 +27,14 @@ namespace Features.AuthenticationSystemImpl.Views
         public override string Title => "Manage Account";
 
         private AuthenticationService _authenticationService;
-        private ILoadingScreenService _loadingScreenService;
+        private LoadingScreenService _loadingScreenService;
         private IDisposable _userContextSubscription;
         private string _currentUserId;
         private CancellationTokenSource _copyResetCts;
         private string _defaultCopyTooltipText;
 
         [Inject]
-        public void Construct(AuthenticationService authenticationService, ILoadingScreenService loadingScreenService)
+        public void Construct(AuthenticationService authenticationService, LoadingScreenService loadingScreenService)
         {
             _authenticationService = authenticationService;
             _loadingScreenService = loadingScreenService;

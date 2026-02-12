@@ -19,8 +19,7 @@ namespace Features.AppLifecycle.States.Game.Substates
 
         protected string GetLocalPlayerId()
         {
-            var configId = LobbyService.StateContext?.Data.PlayerId;
-            if (!string.IsNullOrWhiteSpace(configId))
+            if (LobbyService.TryGetLocalPlayerId(out var configId))
             {
                 return configId;
             }

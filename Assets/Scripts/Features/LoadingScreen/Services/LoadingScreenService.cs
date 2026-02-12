@@ -8,7 +8,7 @@ namespace Features.LoadingScreen.Services
 	/// Service implementation for controlling the global loading screen.
 	/// Coordinates between LoadingScreenCanvas (view) and LoadingScreenLogger (logging).
 	/// </summary>
-	public class LoadingScreenService : ILoadingScreenService
+	public class LoadingScreenService
 	{
 		private readonly LoadingScreenCanvas _canvas;
 		private readonly LoadingScreenLogger _logger;
@@ -21,7 +21,6 @@ namespace Features.LoadingScreen.Services
 			Debug.Log("[LoadingScreenService] Initialized");
 		}
 
-		/// <inheritdoc />
 		public void Show()
 		{
 			Debug.Log("[LoadingScreenService] Show() called");
@@ -29,7 +28,6 @@ namespace Features.LoadingScreen.Services
 			_canvas.Show();
 		}
 
-		/// <inheritdoc />
 		public void Hide()
 		{
 			Debug.Log("[LoadingScreenService] Hide() called");
@@ -37,7 +35,6 @@ namespace Features.LoadingScreen.Services
 			_canvas.Hide();
 		}
 
-		/// <inheritdoc />
 		public string GetCallLog()
 		{
 			return _logger.GetFullLog();

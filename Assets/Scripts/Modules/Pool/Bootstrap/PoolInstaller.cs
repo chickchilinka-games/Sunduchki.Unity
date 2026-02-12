@@ -1,4 +1,4 @@
-﻿using Base.Pool.Services;
+using Base.Pool.Services;
 using Zenject;
 
 namespace Base.Pool.Bootstrap

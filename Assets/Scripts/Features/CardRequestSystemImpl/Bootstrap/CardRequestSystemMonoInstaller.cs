@@ -1,4 +1,3 @@
-using Features.CardRequestSystemImpl.Rules;
 using Modules.CardRequestSystem.Bootstrap;
 using Zenject;
 
@@ -9,7 +8,6 @@ namespace Features.CardRequestSystemImpl.Bootstrap
         public override void InstallBindings()
         {
             Container.Install<CardRequestSystemInstaller>();
-            Container.BindInterfacesTo<TrackCardRequestsOnLobbyConnectRule>().AsSingle();
         }
     }
 }

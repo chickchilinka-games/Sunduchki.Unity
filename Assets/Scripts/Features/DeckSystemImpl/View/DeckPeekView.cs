@@ -7,6 +7,7 @@ using Features.PlayerHandSystemImpl.View;
 using Features.PlayerHandSystemImpl.ViewModel;
 using Modules.DeckSystem.Data;
 using Modules.DeckSystem.Interfaces;
+using Modules.DeckSystem.Services;
 using Modules.Lobby.Services;
 using R3;
 using UnityEngine;
@@ -20,7 +21,7 @@ namespace Features.DeckSystemImpl.View
         [SerializeField] private Transform _container;
         [SerializeField] private int _maxCards = 3;
 
-        private IDeckService _deckService;
+        private DeckService _deckService;
         private LobbyService _lobbyService;
         private RankStackViewPool _standardPool;
         private BonusCardViewPool _bonusPool;
@@ -30,7 +31,7 @@ namespace Features.DeckSystemImpl.View
 
         [Inject]
         public void Construct(
-            IDeckService deckService,
+            DeckService deckService,
             LobbyService lobbyService,
             RankStackViewPool standardPool,
             BonusCardViewPool bonusPool)
@@ -83,7 +84,7 @@ namespace Features.DeckSystemImpl.View
                 return;
             }
 
-            var localId = _lobbyService.StateContext?.Data.PlayerId;
+            var localId = _lobbyService.GetLocalPlayerId();
             if (string.IsNullOrWhiteSpace(localId) ||
                 !string.Equals(peek.PlayerId, localId, StringComparison.Ordinal))
             {
@@ -152,7 +153,7 @@ namespace Features.DeckSystemImpl.View
 
                     var rank = NormalizeRank(card.Rank);
                     var suit = NormalizeSuit(card.Suit);
-                    var vm = new StandardCardViewModel(rank, new[] { suit });
+                    var vm = new RankStackViewModel(rank, new[] { suit });
                     var view = _standardPool.Spawn(_container, vm);
                     view.SetTint(Color.white);
                     _entries.Add(new ViewEntry(view, vm, _standardPool));

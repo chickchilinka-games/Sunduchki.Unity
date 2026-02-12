@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.CardRequestSystem.Data;
-using Modules.CardRequestSystem.Interfaces;
+using Modules.CardRequestSystem.Services;
 using Modules.DefenseDecisionSystem.Services;
 using Modules.Lobby.Services;
 using Modules.TurnSystem.Services;
@@ -14,11 +14,11 @@ namespace Features.AppLifecycle.States.Game.Substates
     public class PlayerTurnGameSubstate : GameSubstateBase
     {
         private readonly TurnSequenceService _turnSequenceService;
-        private readonly ICardRequestService _cardRequestService;
+        private readonly CardRequestService _cardRequestService;
 
         public PlayerTurnGameSubstate(
             TurnSequenceService turnSequenceService,
-            ICardRequestService cardRequestService,
+            CardRequestService cardRequestService,
             DefenseDecisionService defenseDecisionService,
             LobbyService lobbyService)
             : base(lobbyService, defenseDecisionService)

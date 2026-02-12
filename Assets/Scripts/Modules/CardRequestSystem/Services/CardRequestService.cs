@@ -1,70 +1,50 @@
 using System;
-using System.Collections.Generic;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using Modules.CardRequestSystem.Data;
 using Modules.CardRequestSystem.Interfaces;
 using Modules.CardRequestSystem.Model;
 using R3;
+using UnityEngine;
 
 namespace Modules.CardRequestSystem.Services
 {
-    internal class CardRequestService : ICardRequestService, ICardRequestStateWriter
+    public class CardRequestService
     {
-        private readonly CardRequestModel _model;
+        private CardRequestModel _model;
+        private ICardRequestCommandClient _commandClient;
 
-        public CardRequestService(CardRequestModel model)
+        [Zenject.Inject]
+        private void Construct(
+            CardRequestModel model,
+            ICardRequestCommandClient commandClient)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
+            _commandClient = commandClient ?? throw new ArgumentNullException(nameof(commandClient));
         }
 
         public ReadOnlyReactiveProperty<CardRequestState> State => _model.State;
 
         public CardRequestState Current => _model.Current;
 
-        public void RegisterRequest(string from, string target, string rank)
+        public async UniTask<bool> AskAsync(string rank, string targetPlayerId, CancellationToken cancellationToken = default)
         {
-            var evt = new CardRequestEvent(
-                CardRequestEventType.Requested,
-                from,
-                target,
-                rank,
-                0,
-                Array.Empty<CardTransferCardData>(),
-                DateTime.UtcNow);
-            _model.SetState(_model.Current.Next(evt));
-        }
+            if (string.IsNullOrWhiteSpace(rank) || string.IsNullOrWhiteSpace(targetPlayerId))
+            {
+                Debug.LogWarning("[CardRequestSystem] Invalid ask request.");
+                return false;
+            }
 
-        public void RegisterTransfer(string from, string to, IReadOnlyList<CardTransferCardData> cards)
-        {
-            var cardList = cards ?? Array.Empty<CardTransferCardData>();
-            var rank = cardList.Count > 0 ? cardList[0].Rank : string.Empty;
-            var count = cardList.Count;
-            var evt = new CardRequestEvent(
-                CardRequestEventType.Transferred,
-                from,
-                to,
-                rank,
-                count,
-                cardList,
-                DateTime.UtcNow);
-            _model.SetState(_model.Current.Next(evt));
-        }
-
-        public void RegisterNoCards(string from, string target, string rank)
-        {
-            var evt = new CardRequestEvent(
-                CardRequestEventType.Denied,
-                from,
-                target,
-                rank,
-                0,
-                Array.Empty<CardTransferCardData>(),
-                DateTime.UtcNow);
-            _model.SetState(_model.Current.Next(evt));
-        }
-
-        public void Reset()
-        {
-            _model.SetState(CardRequestState.Empty);
+            try
+            {
+                await _commandClient.AskAsync(rank, targetPlayerId, cancellationToken);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[CardRequestSystem] Ask request failed: {ex.Message}");
+                return false;
+            }
         }
     }
 }

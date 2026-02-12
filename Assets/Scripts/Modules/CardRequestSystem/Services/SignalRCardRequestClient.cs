@@ -4,31 +4,99 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.CardRequestSystem.Data;
 using Modules.CardRequestSystem.Interfaces;
+using Modules.Lobby.Data;
+using Modules.Lobby.Interfaces;
 using Modules.SignalR;
+using Modules.SignalR.Config;
+using R3;
+using UnityEngine;
 
 namespace Modules.CardRequestSystem.Services
 {
-    public class SignalRCardRequestClient : ICardRequestSignalClient
+    internal class SignalRCardRequestClient : ICardRequestEventSource, ILobbyConnectionHandler, IDisposable
     {
         private readonly ISignalRConnectionFactory _connectionFactory;
+        private readonly IGameHubConfigProvider _configProvider;
+        private readonly Subject<CardRequestedEvent> _requested = new();
+        private readonly Subject<CardRequestTransferredEvent> _transferred = new();
+        private readonly Subject<CardRequestDeniedEvent> _denied = new();
+        private CancellationTokenSource _cts;
+        private IDisposable _subscription;
 
-        public SignalRCardRequestClient(ISignalRConnectionFactory connectionFactory)
+        public SignalRCardRequestClient(
+            ISignalRConnectionFactory connectionFactory,
+            IGameHubConfigProvider configProvider)
         {
             _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
+            _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
         }
 
-        public async UniTask<IDisposable> SubscribeAsync(
-            CardRequestTrackingOptions options,
-            ICardRequestSignalListener listener,
-            CancellationToken cancellationToken = default)
+        public Observable<CardRequestedEvent> Requested => _requested;
+        public Observable<CardRequestTransferredEvent> Transferred => _transferred;
+        public Observable<CardRequestDeniedEvent> Denied => _denied;
+
+        public async UniTask ConnectAsync(LobbySession session, CancellationToken cancellationToken = default)
         {
-            if (listener == null)
+            if (string.IsNullOrWhiteSpace(session.GameId) || string.IsNullOrWhiteSpace(session.PlayerId))
             {
-                throw new ArgumentNullException(nameof(listener));
+                Debug.LogWarning("[CardRequestSystem] Cannot track requests: missing game or player id.");
+                return;
             }
 
+            await StopTracking();
+
+            _cts = new CancellationTokenSource();
+            try
+            {
+                var options = new CardRequestTrackingOptions(
+                    _configProvider.GetHubUri(),
+                    _configProvider.GetAccessToken(),
+                    session.GameId,
+                    session.PlayerId);
+
+                _subscription = await SubscribeAsync(options, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[CardRequestSystem] Failed to subscribe to request events: {ex.Message}");
+            }
+        }
+
+        public async UniTask DisconnectAsync()
+        {
+            await StopTracking();
+        }
+
+        public void Dispose()
+        {
+            _cts?.Cancel();
+            _cts?.Dispose();
+            _cts = null;
+            _subscription?.Dispose();
+            _subscription = null;
+        }
+
+        private async UniTask StopTracking()
+        {
+            _cts?.Cancel();
+            _cts?.Dispose();
+            _cts = null;
+
+            _subscription?.Dispose();
+            _subscription = null;
+
+            await UniTask.CompletedTask;
+        }
+
+        private async UniTask<IDisposable> SubscribeAsync(
+            CardRequestTrackingOptions options,
+            CancellationToken cancellationToken = default)
+        {
             var connection = _connectionFactory.Create(options.HubUri, options.AccessToken);
-            RegisterHandlers(connection, listener);
+            RegisterHandlers(connection);
 
             await connection.StartAsync(cancellationToken);
             await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
@@ -40,7 +108,7 @@ namespace Modules.CardRequestSystem.Services
             return new Subscription(connection);
         }
 
-        private static void RegisterHandlers(ISignalRConnection connection, ICardRequestSignalListener listener)
+        private void RegisterHandlers(ISignalRConnection connection)
         {
             connection.On<CardsRequestedDto>("CardsRequested", payload =>
             {
@@ -49,7 +117,10 @@ namespace Modules.CardRequestSystem.Services
                     return;
                 }
 
-                listener.OnCardsRequested(payload.FromPlayerId, payload.TargetPlayerId, payload.Rank);
+                _requested.OnNext(new CardRequestedEvent(
+                    payload.FromPlayerId,
+                    payload.TargetPlayerId,
+                    payload.Rank));
             });
 
             connection.On<CardsTransferredDto>("CardsTransferred", payload =>
@@ -81,7 +152,10 @@ namespace Modules.CardRequestSystem.Services
                     return;
                 }
 
-                listener.OnCardsTransferred(payload.PlayerId, payload.Destination, mapped);
+                _transferred.OnNext(new CardRequestTransferredEvent(
+                    payload.PlayerId,
+                    payload.Destination,
+                    mapped));
             });
 
             connection.On<NoCardsResponseDto>("NoCardsResponse", payload =>
@@ -91,21 +165,10 @@ namespace Modules.CardRequestSystem.Services
                     return;
                 }
 
-                listener.OnNoCardsResponse(payload.FromPlayerId, payload.TargetPlayerId, payload.Rank);
-            });
-
-            connection.On<DefenseDecisionRequestedDto>("DefenseDecisionRequested", payload =>
-            {
-                if (payload == null)
-                {
-                    return;
-                }
-
-                listener.OnDefenseDecisionRequested(
-                    payload.AskerId,
+                _denied.OnNext(new CardRequestDeniedEvent(
+                    payload.FromPlayerId,
                     payload.TargetPlayerId,
-                    payload.Rank,
-                    payload.DefenseOptions ?? new List<string>());
+                    payload.Rank));
             });
         }
 
@@ -165,13 +228,6 @@ namespace Modules.CardRequestSystem.Services
             public string TargetPlayerId { get; set; }
             public string Rank { get; set; }
         }
-
-        private sealed class DefenseDecisionRequestedDto
-        {
-            public string AskerId { get; set; }
-            public string TargetPlayerId { get; set; }
-            public string Rank { get; set; }
-            public List<string> DefenseOptions { get; set; }
-        }
     }
 }
+

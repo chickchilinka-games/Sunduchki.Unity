@@ -1,4 +1,3 @@
-using Modules.DefenseDecisionSystem.Interfaces;
 using Modules.DefenseDecisionSystem.Rules;
 using Modules.DefenseDecisionSystem.Services;
 using Zenject;
@@ -9,12 +8,9 @@ namespace Modules.DefenseDecisionSystem.Bootstrap
     {
         public override void InstallBindings()
         {
-            Container.Bind<IDefenseDecisionClient>().To<SignalRDefenseDecisionClient>().AsSingle();
+            Container.BindInterfacesTo<SignalRDefenseDecisionClient>().AsSingle();
             Container.Bind<DefenseDecisionService>().AsSingle();
-            Container.Bind<IDefenseDecisionPromptWriter>()
-                .FromResolveGetter<DefenseDecisionService>(service => service)
-                .AsSingle();
-            Container.BindInterfacesTo<TrackDefenseDecisionOnLobbyConnectRule>().AsSingle();
+            Container.BindInterfacesTo<TrackDefenseDecisionRequestsRule>().AsSingle();
         }
     }
 }

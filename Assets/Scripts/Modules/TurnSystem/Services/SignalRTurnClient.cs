@@ -1,33 +1,82 @@
 using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Modules.Lobby.Data;
+using Modules.Lobby.Interfaces;
 using Modules.SignalR;
+using Modules.SignalR.Config;
 using Modules.TurnSystem.Data;
 using Modules.TurnSystem.Interfaces;
+using R3;
+using UnityEngine;
 
 namespace Modules.TurnSystem.Services
 {
-    public class SignalRTurnClient : ITurnSignalClient
+    internal class SignalRTurnClient : ITurnEventSource, ILobbyConnectionHandler, IDisposable
     {
         private readonly ISignalRConnectionFactory _connectionFactory;
+        private readonly IGameHubConfigProvider _configProvider;
+        private readonly Subject<string> _turnAdvanced = new();
+        private CancellationTokenSource _trackingCts;
+        private IDisposable _subscription;
 
-        public SignalRTurnClient(ISignalRConnectionFactory connectionFactory)
+        public SignalRTurnClient(
+            ISignalRConnectionFactory connectionFactory,
+            IGameHubConfigProvider configProvider)
         {
-            _connectionFactory = connectionFactory;
+            _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
+            _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
         }
 
-        public async UniTask<IDisposable> SubscribeAsync(
-            TurnTrackingOptions options,
-            Action<string> onTurnAdvanced,
-            CancellationToken cancellationToken = default)
+        public Observable<string> TurnAdvanced => _turnAdvanced;
+
+        public async UniTask ConnectAsync(LobbySession session, CancellationToken cancellationToken = default)
         {
-            if (onTurnAdvanced == null)
+            if (string.IsNullOrWhiteSpace(session.GameId) || string.IsNullOrWhiteSpace(session.PlayerId))
             {
-                throw new ArgumentNullException(nameof(onTurnAdvanced));
+                return;
             }
 
+            await StopTracking();
+
+            _trackingCts = new CancellationTokenSource();
+            try
+            {
+                var options = new TurnTrackingOptions(
+                    _configProvider.GetHubUri(),
+                    _configProvider.GetAccessToken(),
+                    session.GameId,
+                    session.PlayerId);
+
+                _subscription = await SubscribeAsync(options, _trackingCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[TurnSystem] Failed to start tracking turns: {ex.Message}");
+            }
+        }
+
+        public async UniTask DisconnectAsync()
+        {
+            await StopTracking();
+        }
+
+        public void Dispose()
+        {
+            _trackingCts?.Cancel();
+            _trackingCts?.Dispose();
+            _subscription?.Dispose();
+        }
+
+        private async UniTask<IDisposable> SubscribeAsync(
+            TurnTrackingOptions options,
+            CancellationToken cancellationToken = default)
+        {
             var connection = _connectionFactory.Create(options.HubUri, options.AccessToken);
-            connection.On<string>("TurnAdvanced", onTurnAdvanced);
+            connection.On<string>("TurnAdvanced", playerId => _turnAdvanced.OnNext(playerId));
 
             await connection.StartAsync(cancellationToken);
             await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
@@ -37,6 +86,18 @@ namespace Modules.TurnSystem.Services
             }, cancellationToken);
 
             return new Subscription(connection);
+        }
+
+        private UniTask StopTracking()
+        {
+            _trackingCts?.Cancel();
+            _trackingCts?.Dispose();
+            _trackingCts = null;
+
+            _subscription?.Dispose();
+            _subscription = null;
+
+            return UniTask.CompletedTask;
         }
 
         private sealed class Subscription : IDisposable
@@ -70,3 +131,4 @@ namespace Modules.TurnSystem.Services
         }
     }
 }
+

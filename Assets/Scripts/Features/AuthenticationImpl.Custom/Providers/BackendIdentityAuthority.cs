@@ -29,10 +29,10 @@ namespace Modules.AuthenticationSystem.Providers
             var cached = LoadCache();
             if (cached == null || string.IsNullOrWhiteSpace(cached.AccessToken))
             {
-                // if (TryGetTelegramInitData(out var initData) && !string.IsNullOrWhiteSpace(initData))
-                // {
-                //     return AutoSignInTelegramAsync(initData);
-                // }
+                if (TryGetTelegramInitData(out var initData) && !string.IsNullOrWhiteSpace(initData))
+                {
+                    return AutoSignInTelegramAsync(initData);
+                }
 
                 return UniTask.FromResult<UserContext>(null);
             }

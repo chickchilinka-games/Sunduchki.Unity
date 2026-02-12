@@ -30,6 +30,7 @@ using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.PackageManager;
 using UnityEngine;
+using BuildTargetGroup = UnityEditor.BuildTargetGroup;
 
 // ReSharper disable once CheckNamespace
 namespace ICVR.Tools
@@ -213,6 +214,12 @@ namespace ICVR.Tools
             GenericBuild("windows/application.exe",
                 BuildTargetGroup.Standalone,
                 BuildTarget.StandaloneWindows64);
+        }
+
+        public static void PerformWebGLBuild()
+        {
+            PlayerSettings.SetScriptingBackend(BuildTargetGroup.WebGL, ScriptingImplementation.Mono2x);
+            GenericBuild("web", BuildTargetGroup.WebGL, BuildTarget.WebGL);
         }
 
         public static void ApplyCustomSetup()

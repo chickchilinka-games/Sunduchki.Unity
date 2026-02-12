@@ -26,7 +26,7 @@ namespace Features.PlayerHandSystemImpl.Providers
                 return UniTask.FromResult(ResolveFromTurnState(string.Empty));
             }
 
-            var localId = _lobbyService.StateContext.Data.PlayerId ?? string.Empty;
+            var localId = _lobbyService.GetLocalPlayerId();
             foreach (var player in players)
             {
                 if (string.IsNullOrWhiteSpace(player.Id))

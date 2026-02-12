@@ -1,5 +1,5 @@
+using Features.BonusSystemImpl.Presenters;
 using Modules.BonusSystem.Bootstrap;
-using NUnit.Framework;
 using Zenject;
 
 namespace Features.BonusSystemImpl.Bootstrap
@@ -9,6 +9,7 @@ namespace Features.BonusSystemImpl.Bootstrap
         public override void InstallBindings()
         {
             Container.Install<BonusSystemInstaller>();
+            Container.BindInterfacesAndSelfTo<OpponentUsedBonusPresenter>().AsSingle();
         }
     }
 }

@@ -1,4 +1,3 @@
-using Modules.TurnSystem.Interfaces;
 using Modules.TurnSystem.Model;
 using Modules.TurnSystem.Rules;
 using Modules.TurnSystem.Services;
@@ -11,10 +10,10 @@ namespace Modules.TurnSystem.Bootstrap
         public override void InstallBindings()
         {
             Container.Bind<TurnSequenceModel>().AsSingle();
+            Container.Bind<TurnSequenceInternalService>().AsSingle();
             Container.Bind<TurnSequenceService>().AsSingle();
-            Container.Bind<ITurnSignalClient>().To<SignalRTurnClient>().AsSingle();
-
-            Container.BindInterfacesTo<TrackTurnOnLobbyConnectRule>().AsSingle();
+            Container.BindInterfacesTo<TrackTurnEventsRule>().AsSingle();
+            Container.BindInterfacesTo<SignalRTurnClient>().AsSingle();
         }
     }
 }

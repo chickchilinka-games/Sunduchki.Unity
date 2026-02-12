@@ -95,13 +95,13 @@ namespace Features.LobbyImpl.View
                 return;
             }
 
-            var gameId = _lobbyService.StateContext.Data.GameId;
+            var gameId = _lobbyService.GetGameId();
             _gameIdLabel.text = string.IsNullOrWhiteSpace(gameId) ? "-" : gameId;
         }
 
         private void OnCopyClicked()
         {
-            var gameId = _lobbyService?.StateContext.Data.GameId;
+            var gameId = _lobbyService?.GetGameId();
             if (string.IsNullOrWhiteSpace(gameId))
             {
                 Debug.LogWarning("[Lobby] Nothing to copy, GameId is empty.");

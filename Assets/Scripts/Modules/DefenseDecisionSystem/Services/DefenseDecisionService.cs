@@ -8,34 +8,35 @@ using UnityEngine;
 
 namespace Modules.DefenseDecisionSystem.Services
 {
-    public class DefenseDecisionService : IDefenseDecisionPromptWriter
+    public class DefenseDecisionService
     {
-        private readonly IDefenseDecisionClient _client;
-        private readonly ReactiveProperty<DefenseDecisionPrompt> _prompt;
-        private string _gameId = string.Empty;
-        private string _playerId = string.Empty;
+        private IDefenseDecisionClient _client;
+        private readonly ReactiveProperty<DefenseDecisionPrompt> _prompt = new(null);
 
-        public DefenseDecisionService(IDefenseDecisionClient client)
+        public ReadOnlyReactiveProperty<DefenseDecisionPrompt> Prompt { get; private set; }
+
+        [Zenject.Inject]
+        private void Construct(IDefenseDecisionClient client)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
-            _prompt = new ReactiveProperty<DefenseDecisionPrompt>(null);
-            Prompt = _prompt.ToReadOnlyReactiveProperty();
+            Prompt ??= _prompt.ToReadOnlyReactiveProperty();
         }
 
-        public ReadOnlyReactiveProperty<DefenseDecisionPrompt> Prompt { get; }
         public DefenseDecisionPrompt CurrentPrompt => _prompt.Value;
-
-        public void Configure(string gameId, string playerId)
-        {
-            _gameId = gameId ?? string.Empty;
-            _playerId = playerId ?? string.Empty;
-        }
 
         public void Reset()
         {
-            _gameId = string.Empty;
-            _playerId = string.Empty;
             ClearPrompt();
+        }
+
+        public void PublishPrompt(DefenseDecisionPrompt prompt)
+        {
+            _prompt.Value = prompt;
+        }
+
+        public void ClearPrompt()
+        {
+            _prompt.Value = null;
         }
 
         public async UniTask<bool> SubmitDecisionAsync(DefenseDecisionSubmitRequest request, CancellationToken cancellationToken = default)
@@ -47,27 +48,19 @@ namespace Modules.DefenseDecisionSystem.Services
                 return false;
             }
 
-            if (string.IsNullOrWhiteSpace(_gameId) || string.IsNullOrWhiteSpace(_playerId))
-            {
-                Debug.LogWarning("[DefenseDecision] Service is not configured with game/player identifiers.");
-                return false;
-            }
-
             if (request.UseBonus && string.IsNullOrWhiteSpace(request.BonusType))
             {
                 Debug.LogWarning("[DefenseDecision] Bonus type is required when using a defense bonus.");
                 return false;
             }
 
-            var payload = new DefenseDecisionSubmitPayload(
-                _gameId,
-                prompt.TargetId,
-                request.UseBonus,
-                NormalizeBonusType(request.BonusType));
-
             try
             {
-                await _client.SubmitDecisionAsync(payload, cancellationToken);
+                await _client.SubmitDecisionAsync(
+                    prompt.TargetId,
+                    request.UseBonus,
+                    NormalizeBonusType(request.BonusType),
+                    cancellationToken);
                 ClearPrompt();
                 return true;
             }
@@ -76,21 +69,6 @@ namespace Modules.DefenseDecisionSystem.Services
                 Debug.LogError($"[DefenseDecision] Failed to submit defense decision: {ex.Message}");
                 return false;
             }
-        }
-
-        void IDefenseDecisionPromptWriter.PublishPrompt(DefenseDecisionPrompt prompt)
-        {
-            _prompt.Value = prompt;
-        }
-
-        void IDefenseDecisionPromptWriter.ClearPrompt()
-        {
-            ClearPrompt();
-        }
-
-        private void ClearPrompt()
-        {
-            _prompt.Value = null;
         }
 
         private static string NormalizeBonusType(string bonusType)

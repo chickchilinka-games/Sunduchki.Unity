@@ -1,6 +1,4 @@
 using Modules.BonusSystem.Config;
-using Modules.BonusSystem.Interfaces;
-using Modules.BonusSystem.Rules;
 using Modules.BonusSystem.Services;
 using UnityEngine;
 using Zenject;
@@ -11,9 +9,8 @@ namespace Modules.BonusSystem.Bootstrap
     {
         public override void InstallBindings()
         {
-            Container.BindInterfacesAndSelfTo<BonusActionService>().AsSingle();
-            Container.Bind<IBonusActionClient>().To<SignalRBonusActionClient>().AsSingle();
-            Container.BindInterfacesTo<TrackBonusActionsOnLobbyConnectRule>().AsSingle();
+            Container.Bind<BonusActionService>().AsSingle();
+            Container.BindInterfacesTo<SignalRBonusActionClient>().AsSingle();
             Container.Bind<IBonusCardRulesProvider>().FromInstance(LoadRulesProvider()).AsSingle();
             Container.BindInterfacesTo<BonusCardInfoConfigProvider>().AsSingle();
         }

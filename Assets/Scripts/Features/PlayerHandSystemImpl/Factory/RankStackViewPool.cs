@@ -4,9 +4,9 @@ using Features.PlayerHandSystemImpl.ViewModel;
 
 namespace Features.PlayerHandSystemImpl.Factory
 {
-    public sealed class RankStackViewPool : ViewPoolBase<StandardCardViewModel, RankStackView>
+    public sealed class RankStackViewPool : ViewPoolBase<RankStackViewModel, RankStackView>
     {
-        protected override void OnViewReinitialize(StandardCardViewModel data, RankStackView item)
+        protected override void OnViewReinitialize(RankStackViewModel data, RankStackView item)
         {
             item.Initialize(data).Forget();
         }

@@ -1,11 +1,13 @@
 using System;
+using Features.PlayerHandSystemImpl.Commands;
 using Features.PlayerHandSystemImpl.Factory;
 using Features.PlayerHandSystemImpl.Interfaces;
 using Features.PlayerHandSystemImpl.Presenters;
+using Features.PlayerHandSystemImpl.Rules;
 using Features.PlayerHandSystemImpl.Providers;
+using Features.PlayerHandSystemImpl.Storage;
 using Features.PlayerHandSystemImpl.View;
 using Modules.PlayerHand.Bootstrap;
-using Modules.AssetSystem.Attributes;
 using UnityEngine;
 using Zenject;
 
@@ -19,8 +21,26 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
         public override void InstallBindings()
         {
             Container.Install<PlayerHandInstaller>();
-            Container.Bind<PlayerHandPresenterFactory>().AsSingle();
+            Container.BindInterfacesAndSelfTo<PlayerHandPresentationContext>().AsSingle();
+            Container.BindInterfacesAndSelfTo<RankStackViewModelStore>().AsSingle();
+            Container.BindInterfacesAndSelfTo<BonusCardViewModelStore>().AsSingle();
             Container.BindInterfacesAndSelfTo<PlayerHandPresenter>().AsSingle();
+            Container.BindInterfacesAndSelfTo<PlayerHandInteractionPresenter>().AsSingle();
+            Container.BindInterfacesAndSelfTo<PlayerHandSetCompletionPresenter>().AsSingle();
+            Container.BindInterfacesAndSelfTo<BonusHandPresenter>().AsSingle();
+            Container.BindInterfacesAndSelfTo<BonusHandInteractionPresenter>().AsSingle();
+            Container.BindInterfacesAndSelfTo<CardRequestPresentationPresenter>().AsSingle();
+            Container.BindInterfacesTo<PlayerHandCommands>().AsSingle();
+            Container.Bind<IRankStackViewModelFactory>().To<RankStackViewModelFactory>().AsSingle();
+            Container.BindInterfacesTo<PlayerHandSessionPresentationRule>().AsSingle();
+            Container.BindInterfacesTo<PlayerHandSnapshotPresentationRule>().AsSingle();
+            Container.BindInterfacesTo<PlayerHandTurnPresentationRule>().AsSingle();
+            Container.BindInterfacesTo<PlayerHandDefensePresentationRule>().AsSingle();
+            Container.BindInterfacesTo<PlayerHandSetCompletionPresentationRule>().AsSingle();
+            Container.BindInterfacesTo<PlayerHandCardRequestPresentationRule>().AsSingle();
+            Container.BindInterfacesTo<PlayerHandBonusPresentationRule>().AsSingle();
+            Container.BindInterfacesTo<BonusHandConfigPresentationRule>().AsSingle();
+            Container.BindInterfacesTo<BonusHandUsePresentationRule>().AsSingle();
             Container.Bind<ITargetPlayerSelector>().To<SingleOpponentSelector>().AsSingle();
 
             BindStandardPool();

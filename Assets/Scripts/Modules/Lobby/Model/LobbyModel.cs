@@ -6,7 +6,7 @@ using R3;
 
 namespace Modules.Lobby.Model
 {
-    public class LobbyModel
+    internal class LobbyModel
     {
         private readonly ReactiveProperty<LobbyState> _state = new(LobbyState.Default);
         private readonly ReactiveProperty<IReadOnlyList<LobbyPlayerInfo>> _players =

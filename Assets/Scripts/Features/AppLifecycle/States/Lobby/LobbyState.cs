@@ -58,8 +58,7 @@ namespace Features.AppLifecycle.States.Lobby
 
         private async UniTask ConnectLobbyAsync(CancellationToken token)
         {
-            if (string.IsNullOrWhiteSpace(_lobbyService.StateContext.Data.GameId) ||
-                string.IsNullOrWhiteSpace(_lobbyService.StateContext.Data.PlayerId))
+            if (!_lobbyService.TryGetSession(out _, out _))
             {
                 Debug.LogWarning("[LobbyState] Lobby config is incomplete, skipping SignalR connect.");
                 return;

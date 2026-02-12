@@ -1,4 +1,3 @@
-using Modules.PlayerHand.Interfaces;
 using Modules.PlayerHand.Model;
 using Modules.PlayerHand.Rules;
 using Modules.PlayerHand.Services;
@@ -11,10 +10,10 @@ namespace Modules.PlayerHand.Bootstrap
         public override void InstallBindings()
         {
             Container.Bind<PlayerHandModel>().AsSingle();
-            Container.BindInterfacesAndSelfTo<PlayerHandService>().AsSingle();
-            Container.BindInterfacesTo<PlayerHandSignalRelay>().AsSingle();
-            Container.Bind<IPlayerHandSignalClient>().To<SignalRPlayerHandClient>().AsSingle();
-            Container.BindInterfacesTo<TrackPlayerHandOnLobbyConnectRule>().AsSingle();
+            Container.Bind<PlayerHandInternalService>().AsSingle();
+            Container.Bind<PlayerHandService>().AsSingle();
+            Container.BindInterfacesTo<TrackPlayerHandEventsRule>().AsSingle();
+            Container.BindInterfacesTo<SignalRPlayerHandClient>().AsSingle();
         }
     }
 }

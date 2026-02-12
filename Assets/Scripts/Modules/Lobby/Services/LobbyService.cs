@@ -18,7 +18,7 @@ namespace Modules.Lobby.Services
         private readonly ITokenProvider _tokenProvider;
         private readonly LobbyStateContext _state;
 
-        public LobbyService(
+        internal LobbyService(
             ILobbyApiClient apiClient,
             ILobbySignalRClient signalRClient,
             ITokenProvider tokenProvider,
@@ -29,8 +29,6 @@ namespace Modules.Lobby.Services
             _tokenProvider = tokenProvider;
             _state = state ?? throw new ArgumentNullException(nameof(state));
         }
-
-        public LobbyStateContext StateContext => _state;
 
         public ReadOnlyReactiveProperty<LobbyState> State => _state.State;
         public ReadOnlyReactiveProperty<IReadOnlyList<LobbyPlayerInfo>> Players => _state.Players;
@@ -43,6 +41,43 @@ namespace Modules.Lobby.Services
         public LobbyPlayerInfo GetLocalPlayer()
         {
             return _state.Players.CurrentValue.FirstOrDefault(player=>player.IsLocal);    
+        }
+
+        public string GetGameId()
+        {
+            return _state.Data.GameId ?? string.Empty;
+        }
+
+        public string GetLocalPlayerId()
+        {
+            return _state.Data.PlayerId ?? string.Empty;
+        }
+
+        public bool TryGetGameId(out string gameId)
+        {
+            gameId = _state.Data.GameId ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(gameId);
+        }
+
+        public bool TryGetLocalPlayerId(out string playerId)
+        {
+            playerId = _state.Data.PlayerId ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(playerId);
+        }
+
+        public bool TryGetDeckConfig(out int? deckCount, out int? totalCards)
+        {
+            deckCount = _state.Data.DeckCount;
+            totalCards = _state.Data.TotalCards;
+            return deckCount.HasValue || totalCards.HasValue;
+        }
+
+        public bool TryGetSession(out string gameId, out string playerId)
+        {
+            var data = _state.Data;
+            gameId = data.GameId ?? string.Empty;
+            playerId = data.PlayerId ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(gameId) && !string.IsNullOrWhiteSpace(playerId);
         }
         
         public void UpdateData(LobbyData data)

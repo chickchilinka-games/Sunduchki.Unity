@@ -17,10 +17,10 @@ namespace Features.AuthenticationSystemImpl.Views
         public override string Title => "Sign In";
 
         private AuthenticationService _authenticationService;
-        private ILoadingScreenService _loadingScreenService;
+        private LoadingScreenService _loadingScreenService;
 
         [Inject]
-        public void Construct(AuthenticationService authenticationService, ILoadingScreenService loadingScreenService)
+        public void Construct(AuthenticationService authenticationService, LoadingScreenService loadingScreenService)
         {
             _authenticationService = authenticationService;
             _loadingScreenService = loadingScreenService;

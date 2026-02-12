@@ -3,22 +3,47 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.CardRequestSystem.Data;
 using Modules.CardRequestSystem.Interfaces;
+using Modules.Lobby.Data;
+using Modules.Lobby.Interfaces;
+using Modules.SignalR.Config;
 using Modules.SignalR;
 using UnityEngine;
 
 namespace Modules.CardRequestSystem.Services
 {
-    public class SignalRCardRequestCommandClient : ICardRequestCommandClient
+    internal class SignalRCardRequestCommandClient : ICardRequestCommandClient, ILobbyConnectionHandler
     {
         private readonly ISignalRConnectionFactory _connectionFactory;
+        private readonly IGameHubConfigProvider _configProvider;
         private ISignalRConnection _connection;
+        private string _gameId = string.Empty;
+        private string _playerId = string.Empty;
 
-        public SignalRCardRequestCommandClient(ISignalRConnectionFactory connectionFactory)
+        public SignalRCardRequestCommandClient(
+            ISignalRConnectionFactory connectionFactory,
+            IGameHubConfigProvider configProvider)
         {
             _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
+            _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
         }
 
-        public async UniTask ConnectAsync(CardRequestCommandOptions options, CancellationToken cancellationToken = default)
+        public async UniTask ConnectAsync(LobbySession session, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(session.GameId) || string.IsNullOrWhiteSpace(session.PlayerId))
+            {
+                return;
+            }
+
+            var options = new CardRequestCommandOptions(
+                _configProvider.GetHubUri(),
+                _configProvider.GetAccessToken(),
+                session.GameId,
+                session.PlayerId);
+
+            await ConnectAsync(options, cancellationToken);
+        }
+
+        private async UniTask ConnectAsync(CardRequestCommandOptions options, CancellationToken cancellationToken = default)
         {
             await DisconnectAsync();
 
@@ -31,6 +56,8 @@ namespace Modules.CardRequestSystem.Services
             }, cancellationToken);
 
             _connection = connection;
+            _gameId = options.GameId ?? string.Empty;
+            _playerId = options.PlayerId ?? string.Empty;
         }
 
         public async UniTask DisconnectAsync()
@@ -49,9 +76,12 @@ namespace Modules.CardRequestSystem.Services
             {
                 connection.Dispose();
             }
+
+            _gameId = string.Empty;
+            _playerId = string.Empty;
         }
 
-        public async UniTask AskAsync(CardRequestAskPayload payload, CancellationToken cancellationToken = default)
+        public async UniTask AskAsync(string rank, string targetPlayerId, CancellationToken cancellationToken = default)
         {
             if (_connection == null)
             {
@@ -59,12 +89,24 @@ namespace Modules.CardRequestSystem.Services
                 return;
             }
 
+            if (string.IsNullOrWhiteSpace(_gameId) || string.IsNullOrWhiteSpace(_playerId))
+            {
+                Debug.LogWarning("[CardRequestSystem] Ask called without game/player session.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(rank) || string.IsNullOrWhiteSpace(targetPlayerId))
+            {
+                Debug.LogWarning("[CardRequestSystem] Invalid ask request.");
+                return;
+            }
+
             await _connection.InvokeAsync("Ask", new AskRequestDto
             {
-                GameId = payload.GameId,
-                AskerId = payload.AskerId,
-                TargetId = payload.TargetId,
-                Rank = payload.Rank
+                GameId = _gameId,
+                AskerId = _playerId,
+                TargetId = targetPlayerId,
+                Rank = rank
             }, cancellationToken);
         }
 

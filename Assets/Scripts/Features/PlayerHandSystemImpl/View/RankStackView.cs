@@ -34,7 +34,7 @@ namespace Features.PlayerHandSystemImpl.View
         [SerializeField] private CanvasGroup _canvasGroup;
 
         private AssetService _assetService;
-        private StandardCardViewModel _viewModel;
+        private RankStackViewModel _viewModel;
         private CompositeDisposable _bindings;
         private readonly List<ManagedAsset<Sprite>> _cardSprites = new();
         private readonly Dictionary<Image, Vector2> _cardBasePositions = new();
@@ -79,7 +79,7 @@ namespace Features.PlayerHandSystemImpl.View
             ReleaseCardSprites();
         }
 
-        public async UniTask Initialize(StandardCardViewModel viewModel)
+        public async UniTask Initialize(RankStackViewModel viewModel)
         {
             if (viewModel == null) throw new ArgumentNullException(nameof(viewModel));
 
@@ -87,10 +87,10 @@ namespace Features.PlayerHandSystemImpl.View
             _viewModel = viewModel;
             _bindings = new CompositeDisposable();
 
-            await UpdateCardsAsync(viewModel.Suits.CurrentValue);
+            await UpdateCardsAsync(viewModel.Cards.CurrentValue);
 
-            viewModel.Suits
-                .Subscribe(suits => UpdateCardsAsync(suits).Forget())
+            viewModel.Cards
+                .Subscribe(cards => UpdateCardsAsync(cards).Forget())
                 .AddTo(_bindings);
 
             viewModel.CanPress
@@ -126,7 +126,7 @@ namespace Features.PlayerHandSystemImpl.View
             ApplyTint(canPress ? Color.white : DisabledTint);
         }
 
-        private async UniTask UpdateCardsAsync(IReadOnlyList<string> suits)
+        private async UniTask UpdateCardsAsync(IReadOnlyList<StandardCardItemViewModel> cards)
         {
             if (_cards == null || _cards.Length == 0 || _assetService == null || _viewModel == null)
             {
@@ -142,7 +142,8 @@ namespace Features.PlayerHandSystemImpl.View
                 return;
             }
 
-            var normalized = suits?
+            var normalized = cards?
+                .Select(card => card?.Suit)
                 .Where(suit => !string.IsNullOrWhiteSpace(suit))
                 .Select(suit => suit.Trim().ToLowerInvariant())
                 .ToList() ?? new List<string>();
@@ -577,17 +578,18 @@ namespace Features.PlayerHandSystemImpl.View
             var normalized = string.IsNullOrWhiteSpace(suit) ? string.Empty : suit.Trim().ToLowerInvariant();
             if (!string.IsNullOrWhiteSpace(normalized))
             {
-                var suits = _viewModel.Suits.CurrentValue;
+                var suits = _viewModel.Cards.CurrentValue;
                 for (var index = 0; index < suits.Count && index < _cards.Length; index++)
                 {
-                    if (string.Equals(suits[index], normalized, StringComparison.OrdinalIgnoreCase))
+                    var suitValue = suits[index]?.Suit;
+                    if (string.Equals(suitValue, normalized, StringComparison.OrdinalIgnoreCase))
                     {
                         return index;
                     }
                 }
             }
 
-            var fallback = _viewModel.Suits.CurrentValue.Count - 1;
+            var fallback = _viewModel.Cards.CurrentValue.Count - 1;
             return Mathf.Clamp(fallback, 0, _cards.Length - 1);
         }
 

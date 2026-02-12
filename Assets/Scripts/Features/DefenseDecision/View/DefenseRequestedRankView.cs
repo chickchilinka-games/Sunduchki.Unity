@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.CardRequestSystem.Data;
-using Modules.CardRequestSystem.Interfaces;
+using Modules.CardRequestSystem.Services;
 using Modules.DefenseDecisionSystem.Data;
 using Modules.DefenseDecisionSystem.Services;
 using Modules.Lobby.Services;
@@ -23,7 +23,7 @@ namespace Features.DefenseDecision.View
         [SerializeField] private float _hideDelaySeconds = 0.8f;
 
         private DefenseDecisionService _defenseService;
-        private ICardRequestService _cardRequestService;
+        private CardRequestService _cardRequestService;
         private LobbyService _lobbyService;
         private PlayerRosterService _rosterService;
         private IDisposable _subscription;
@@ -38,7 +38,7 @@ namespace Features.DefenseDecision.View
         [Inject]
         public void Construct(
             DefenseDecisionService defenseService,
-            ICardRequestService cardRequestService,
+            CardRequestService cardRequestService,
             LobbyService lobbyService,
             PlayerRosterService rosterService)
         {
@@ -92,7 +92,7 @@ namespace Features.DefenseDecision.View
                 return;
             }
 
-            var localId = _lobbyService.StateContext?.Data.PlayerId;
+            var localId = _lobbyService.GetLocalPlayerId();
             if (string.IsNullOrWhiteSpace(localId) ||
                 !string.Equals(prompt.TargetId, localId, StringComparison.Ordinal))
             {
@@ -116,7 +116,7 @@ namespace Features.DefenseDecision.View
             }
 
             var evt = state.LastEvent;
-            var localId = _lobbyService.StateContext?.Data.PlayerId;
+            var localId = _lobbyService.GetLocalPlayerId();
             if (string.IsNullOrWhiteSpace(localId) ||
                 !string.Equals(evt.TargetId, localId, StringComparison.Ordinal))
             {

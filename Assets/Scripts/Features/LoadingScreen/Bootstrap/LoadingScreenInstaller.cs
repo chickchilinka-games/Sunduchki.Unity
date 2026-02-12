@@ -8,7 +8,7 @@ namespace Features.LoadingScreen.Bootstrap
 {
 	/// <summary>
 	/// Zenject installer for LoadingScreen Feature.
-	/// Binds ILoadingScreenService and all dependencies for global loading screen.
+	/// Binds LoadingScreenService and all dependencies for global loading screen.
 	/// Must be installed in ProjectContext to ensure availability across all scenes.
 	/// </summary>
 	public class LoadingScreenInstaller : MonoInstaller
