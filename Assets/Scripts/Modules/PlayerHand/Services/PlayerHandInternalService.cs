@@ -9,22 +9,40 @@ namespace Modules.PlayerHand.Services
     internal class PlayerHandInternalService
     {
         private readonly PlayerHandModel _model;
+        private readonly Dictionary<string, long> _lastSnapshotRevision = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, long> _lastEventSeq = new(StringComparer.Ordinal);
 
         public PlayerHandInternalService(PlayerHandModel model)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
         }
 
-        public void ApplyStandardSnapshot(string playerId, IReadOnlyList<StandardCardData> cards)
+        public void ApplyStandardSnapshot(string playerId, IReadOnlyList<StandardCardData> cards, long revision)
         {
+            if (revision > 0)
+            {
+                if (_lastSnapshotRevision.TryGetValue(playerId, out var lastRevision) &&
+                    revision <= lastRevision)
+                {
+                    return;
+                }
+
+                _lastSnapshotRevision[playerId] = revision;
+            }
+
             Update(playerId, _ => new PlayerHandState(
                 playerId,
                 CopyStandard(cards),
                 _model.GetOrCreate(playerId).Value.BonusCards));
         }
 
-        public void AddStandardCard(string playerId, StandardCardData card)
+        public void AddStandardCard(string playerId, StandardCardData card, long eventSeq = 0)
         {
+            if (IsStaleEvent(playerId, eventSeq))
+            {
+                return;
+            }
+
             var property = _model.GetOrCreate(playerId);
             var current = property.Value;
             if (current.StandardCards.Any(item => SameStandard(item, card)))
@@ -38,8 +56,17 @@ namespace Modules.PlayerHand.Services
             property.Value = new PlayerHandState(current.PlayerId, list, current.BonusCards);
         }
 
-        public void RemoveStandardCard(string playerId, StandardCardData card)
+        public void RemoveStandardCard(
+            string playerId,
+            StandardCardData card,
+            long eventSeq = 0,
+            string completedSetRank = "")
         {
+            if (IsStaleEvent(playerId, eventSeq))
+            {
+                return;
+            }
+
             Update(playerId, state =>
             {
                 var list = state.StandardCards.ToList();
@@ -51,6 +78,11 @@ namespace Modules.PlayerHand.Services
 
                 return new PlayerHandState(state.PlayerId, list, state.BonusCards);
             });
+
+            if (!string.IsNullOrWhiteSpace(completedSetRank))
+            {
+                ApplySetCompleted(playerId, completedSetRank, eventSeq);
+            }
         }
 
         public void AddBonusCard(string playerId, BonusCardData card)
@@ -89,9 +121,47 @@ namespace Modules.PlayerHand.Services
             string playerId,
             string source,
             IReadOnlyList<StandardCardData> standardCards,
-            IReadOnlyList<BonusCardData> bonusCards)
+            IReadOnlyList<BonusCardData> bonusCards,
+            long eventSeq = 0,
+            bool completedSet = false,
+            string completedSetRank = "")
         {
-            _model.PublishCardsReceived(new CardsReceivedEvent(playerId, source, standardCards, bonusCards));
+            _model.PublishCardsReceived(new CardsReceivedEvent(
+                playerId,
+                source,
+                standardCards,
+                bonusCards,
+                eventSeq,
+                completedSet,
+                completedSetRank));
+        }
+
+        public void ApplySetCompleted(string playerId, string rank, long eventSeq = 0)
+        {
+            if (string.IsNullOrWhiteSpace(playerId) || string.IsNullOrWhiteSpace(rank))
+            {
+                return;
+            }
+
+            if (IsStaleEvent(playerId, eventSeq))
+            {
+                return;
+            }
+
+            var normalizedRank = rank.Trim();
+            Update(playerId, state =>
+            {
+                if (state.StandardCards.Count == 0)
+                {
+                    return state;
+                }
+
+                var updated = state.StandardCards
+                    .Where(card => !string.Equals(card.Rank, normalizedRank, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                return new PlayerHandState(state.PlayerId, updated, state.BonusCards);
+            });
         }
 
         public void ClearHand(string playerId)
@@ -101,6 +171,8 @@ namespace Modules.PlayerHand.Services
 
         public void ResetAll()
         {
+            _lastSnapshotRevision.Clear();
+            _lastEventSeq.Clear();
             _model.ResetAll();
         }
 
@@ -124,6 +196,32 @@ namespace Modules.PlayerHand.Services
         private static bool SameBonus(BonusCardData left, BonusCardData right)
         {
             return string.Equals(left.BonusType, right.BonusType, StringComparison.Ordinal);
+        }
+
+        private bool IsStaleEvent(string playerId, long eventSeq)
+        {
+            if (eventSeq <= 0)
+            {
+                return false;
+            }
+
+            if (!_lastEventSeq.TryGetValue(playerId, out var lastSeq))
+            {
+                _lastEventSeq[playerId] = eventSeq;
+                return false;
+            }
+
+            if (eventSeq < lastSeq)
+            {
+                return true;
+            }
+
+            if (eventSeq > lastSeq)
+            {
+                _lastEventSeq[playerId] = eventSeq;
+            }
+
+            return false;
         }
     }
 }

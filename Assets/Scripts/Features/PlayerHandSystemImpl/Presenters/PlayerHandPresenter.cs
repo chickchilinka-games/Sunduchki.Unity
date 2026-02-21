@@ -42,6 +42,11 @@ namespace Features.PlayerHandSystemImpl.Presenters
                     }
                 })
                 .AddTo(_subscriptions);
+
+            // Keep view refresh in sync with any store mutation (not only snapshots).
+            _store.Changed
+                .Subscribe(_ => _handChanged.OnNext(Unit.Default))
+                .AddTo(_subscriptions);
         }
 
         public void Dispose()
@@ -69,13 +74,11 @@ namespace Features.PlayerHandSystemImpl.Presenters
         private void UpdateHand(PlayerHandState state)
         {
             _store.Sync(state.StandardCards);
-            _handChanged.OnNext(Unit.Default);
         }
 
         private void ClearViewModels()
         {
             _store.Clear();
-            _handChanged.OnNext(Unit.Default);
         }
 
     }

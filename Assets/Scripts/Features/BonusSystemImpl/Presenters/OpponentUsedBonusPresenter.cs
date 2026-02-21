@@ -39,6 +39,7 @@ namespace Features.BonusSystemImpl.Presenters
 
         private bool _holdUntilTurnEnd;
         private string _holderPlayerId = string.Empty;
+        private int _stateRevision;
 
         public OpponentUsedBonusPresenter(
             PlayerHandService handService,
@@ -179,21 +180,35 @@ namespace Features.BonusSystemImpl.Presenters
         {
             _holdUntilTurnEnd = false;
             _holderPlayerId = string.Empty;
-            _state.Value = new OpponentUsedBonusViewState(true, bonusType, hideDelay);
+            _state.Value = new OpponentUsedBonusViewState(true, bonusType, hideDelay, NextRevision());
         }
 
         private void ShowHold(string bonusType, string playerId)
         {
             _holdUntilTurnEnd = true;
             _holderPlayerId = playerId ?? string.Empty;
-            _state.Value = new OpponentUsedBonusViewState(true, bonusType, null);
+            _state.Value = new OpponentUsedBonusViewState(true, bonusType, null, NextRevision());
         }
 
         private void Hide()
         {
             _holdUntilTurnEnd = false;
             _holderPlayerId = string.Empty;
-            _state.Value = OpponentUsedBonusViewState.Hidden;
+            _state.Value = new OpponentUsedBonusViewState(false, string.Empty, null, NextRevision());
+        }
+
+        private int NextRevision()
+        {
+            if (_stateRevision == int.MaxValue)
+            {
+                _stateRevision = 0;
+            }
+            else
+            {
+                _stateRevision++;
+            }
+
+            return _stateRevision;
         }
     }
 }

@@ -18,6 +18,8 @@ namespace Modules.Lobby.Rules
         private readonly CompositeDisposable _disposables = new();
         private CancellationTokenSource _cts;
         private bool _connected;
+        private bool _connecting;
+        private bool _retryScheduled;
         private string _trackedGameId = string.Empty;
         private string _trackedPlayerId = string.Empty;
 
@@ -36,25 +38,37 @@ namespace Modules.Lobby.Rules
 
         private void OnLobbyStateChanged(LobbyState state)
         {
-            switch (state.Status)
+            // During active match we keep module connections stable even if lobby status
+            // transiently flips (e.g. Waiting/Connecting) while Started flag is true.
+            if (state.Started || state.Status == LobbyStatus.Started)
             {
-                case LobbyStatus.Started:
-                    if (ShouldConnect())
-                    {
-                        BeginConnect().Forget();
-                    }
-                    break;
-                default:
-                    if (_connected)
-                    {
-                        DisconnectAll().Forget();
-                    }
-                    break;
+                if (ShouldConnect())
+                {
+                    BeginConnect().Forget();
+                }
+
+                return;
+            }
+
+            // Disconnect only when session is no longer active.
+            if (!_connected)
+            {
+                return;
+            }
+
+            if (state.Status == LobbyStatus.Ended || state.Status == LobbyStatus.Idle)
+            {
+                DisconnectAll().Forget();
             }
         }
 
         private bool ShouldConnect()
         {
+            if (_connecting)
+            {
+                return false;
+            }
+
             if (!_lobbyService.TryGetSession(out var gameId, out var playerId))
             {
                 return false;
@@ -71,8 +85,15 @@ namespace Modules.Lobby.Rules
 
         private async UniTaskVoid BeginConnect()
         {
+            if (_connecting)
+            {
+                return;
+            }
+
+            _connecting = true;
             if (!_lobbyService.TryGetSession(out var gameId, out var playerId))
             {
+                _connecting = false;
                 Debug.LogWarning("[Lobby] Missing game/player id, skipping module connect.");
                 return;
             }
@@ -85,7 +106,10 @@ namespace Modules.Lobby.Rules
             {
                 foreach (var handler in _handlers)
                 {
+                    var handlerName = handler.GetType().Name;
+                    Debug.Log($"[Lobby] Connecting handler: {handlerName}");
                     await handler.ConnectAsync(session, _cts.Token);
+                    Debug.Log($"[Lobby] Connected handler: {handlerName}");
                 }
 
                 _connected = true;
@@ -101,6 +125,11 @@ namespace Modules.Lobby.Rules
                 _connected = false;
                 _trackedGameId = string.Empty;
                 _trackedPlayerId = string.Empty;
+                ScheduleReconnectRetry();
+            }
+            finally
+            {
+                _connecting = false;
             }
         }
 
@@ -118,6 +147,37 @@ namespace Modules.Lobby.Rules
             _connected = false;
             _trackedGameId = string.Empty;
             _trackedPlayerId = string.Empty;
+        }
+
+        private void ScheduleReconnectRetry()
+        {
+            if (_retryScheduled)
+            {
+                return;
+            }
+
+            _retryScheduled = true;
+            UniTask.Void(async () =>
+            {
+                try
+                {
+                    await UniTask.Delay(TimeSpan.FromSeconds(1));
+                    var state = _lobbyService.State.CurrentValue;
+                    if (!(state.Started || state.Status == LobbyStatus.Started))
+                    {
+                        return;
+                    }
+
+                    if (ShouldConnect())
+                    {
+                        BeginConnect().Forget();
+                    }
+                }
+                finally
+                {
+                    _retryScheduled = false;
+                }
+            });
         }
 
         public void Dispose()

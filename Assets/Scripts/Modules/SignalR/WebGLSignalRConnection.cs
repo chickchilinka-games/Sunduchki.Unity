@@ -19,6 +19,8 @@ namespace Modules.SignalR
         private Action<Exception> _closedHandler;
         private Action<string> _reconnectedHandler;
         private bool _hasStarted;
+        private const float StartTimeoutSeconds = 20f;
+        private const float StopTimeoutSeconds = 2f;
 
         private readonly Dictionary<string, Action<string>> _rawHandlers = new();
         private readonly Dictionary<string, UniTaskCompletionSource> _pendingInvokes = new();
@@ -34,7 +36,7 @@ namespace Modules.SignalR
             ThrowIfDisposed();
             _startTcs = new UniTaskCompletionSource();
             _host.StartConnection(_connectionId);
-            return _startTcs.Task.AttachExternalCancellation(cancellationToken);
+            return WaitStartAsync(cancellationToken);
         }
 
         public UniTask InvokeAsync(string methodName, object payload, CancellationToken cancellationToken = default)
@@ -137,7 +139,7 @@ namespace Modules.SignalR
 
             _stopTcs = new UniTaskCompletionSource();
             _host.StopConnection(_connectionId);
-            return _stopTcs.Task.AttachExternalCancellation(cancellationToken);
+            return WaitStopAsync(cancellationToken);
         }
 
         public void HandleMessage(SignalRMessageEnvelope envelope)
@@ -159,6 +161,9 @@ namespace Modules.SignalR
                     {
                         _hasStarted = true;
                     }
+                    break;
+                case "reconnected":
+                    _reconnectedHandler?.Invoke(envelope.RequestId);
                     break;
                 case "startFailed":
                     _startTcs?.TrySetException(new InvalidOperationException(envelope.Error ?? "SignalR start failed."));
@@ -186,6 +191,14 @@ namespace Modules.SignalR
                     break;
                 case "stopped":
                 case "closed":
+                    if (!_hasStarted && _startTcs != null)
+                    {
+                        var startError = string.IsNullOrWhiteSpace(envelope.Error)
+                            ? "SignalR connection closed during start."
+                            : envelope.Error;
+                        _startTcs.TrySetException(new InvalidOperationException(startError));
+                    }
+
                     _stopTcs?.TrySetResult();
                     if (envelope.Type == "closed" && _closedHandler != null)
                     {
@@ -232,6 +245,44 @@ namespace Modules.SignalR
 
             _rawHandlers[handlerName] = callback;
             _host.RegisterHandler(_connectionId, handlerName);
+        }
+
+        private async UniTask WaitStartAsync(CancellationToken cancellationToken)
+        {
+            var startTask = _startTcs.Task;
+            var winner = await UniTask.WhenAny(startTask, UniTask.Delay(TimeSpan.FromSeconds(StartTimeoutSeconds)));
+            if (winner == 0)
+            {
+                await startTask.AttachExternalCancellation(cancellationToken);
+                return;
+            }
+
+            try
+            {
+                _host.StopConnection(_connectionId);
+            }
+            catch
+            {
+                // ignore stop failures on timeout path
+            }
+
+            _host.RemoveConnection(_connectionId);
+            throw new TimeoutException($"SignalR start timed out after {StartTimeoutSeconds} seconds.");
+        }
+
+        private async UniTask WaitStopAsync(CancellationToken cancellationToken)
+        {
+            var stopTask = _stopTcs.Task;
+            var winner = await UniTask.WhenAny(stopTask, UniTask.Delay(TimeSpan.FromSeconds(StopTimeoutSeconds)));
+            if (winner == 0)
+            {
+                await stopTask.AttachExternalCancellation(cancellationToken);
+                return;
+            }
+
+            // Bridge can miss "stopped" (e.g. already-closed JS handle); don't block lifecycle.
+            _stopTcs?.TrySetResult();
+            _host.RemoveConnection(_connectionId);
         }
 
         private void CleanupPending(Exception error)

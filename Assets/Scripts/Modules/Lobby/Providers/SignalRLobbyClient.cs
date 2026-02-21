@@ -141,15 +141,36 @@ namespace Modules.Lobby.Providers
                     Array.Empty<string>()));
             });
 
-            connection.On<SetCompletedDto>("SetCompleted", payload =>
+            connection.On<CardsTransferredDto>("CardsTransferred", payload =>
             {
                 if (payload == null)
                 {
                     return;
                 }
 
-                Debug.Log($"[Lobby] SetCompleted received: playerId={payload.PlayerId}, rank={payload.Rank}");
-                listener.OnSetCompleted(payload.PlayerId, payload.Rank);
+                if (!string.Equals(payload.Destination, "chest", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                if (!payload.CompletedSet)
+                {
+                    return;
+                }
+
+                var rank = payload.CompletedSetRank;
+                if (string.IsNullOrWhiteSpace(rank) && payload.Cards != null && payload.Cards.Length > 0)
+                {
+                    rank = payload.Cards[0]?.Rank ?? string.Empty;
+                }
+
+                if (string.IsNullOrWhiteSpace(rank))
+                {
+                    return;
+                }
+
+                Debug.Log($"[Lobby] Chest completed via transfer: playerId={payload.PlayerId}, rank={rank}");
+                listener.OnSetCompleted(payload.PlayerId, rank);
             });
         }
 
@@ -172,10 +193,20 @@ namespace Modules.Lobby.Providers
             public string PlayerId { get; set; }
         }
 
-        private sealed class SetCompletedDto
+        private sealed class CardsTransferredDto
         {
             public string PlayerId { get; set; }
+            public string Destination { get; set; }
+            public TransferCardDto[] Cards { get; set; }
+            public bool CompletedSet { get; set; }
+            public string CompletedSetRank { get; set; }
+        }
+
+        private sealed class TransferCardDto
+        {
             public string Rank { get; set; }
+            public string Suit { get; set; }
+            public string BonusType { get; set; }
         }
 
         private sealed class LeaveGameRequestDto

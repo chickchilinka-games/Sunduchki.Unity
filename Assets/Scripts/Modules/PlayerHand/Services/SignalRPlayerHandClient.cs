@@ -24,7 +24,7 @@ namespace Modules.PlayerHand.Services
         private readonly Subject<PlayerHandBonusCardEvent> _bonusCardRemoved = new();
         private readonly Subject<CardsReceivedEvent> _cardsReceived = new();
         private CancellationTokenSource _cts;
-        private IDisposable _subscription;
+        private ISignalRConnection _connection;
 
         public SignalRPlayerHandClient(
             ISignalRConnectionFactory connectionFactory,
@@ -51,7 +51,8 @@ namespace Modules.PlayerHand.Services
 
             await StopTracking();
 
-            _cts = new CancellationTokenSource();
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var token = _cts.Token;
             try
             {
                 var options = new PlayerHandTrackingOptions(
@@ -60,15 +61,14 @@ namespace Modules.PlayerHand.Services
                     session.GameId,
                     session.PlayerId);
 
-                _subscription = await SubscribeAsync(options, _cts.Token);
+                await SubscribeAsync(options, token);
                 Debug.Log($"[PlayerHand] Subscribed to hand updates for {session.PlayerId}.");
-            }
-            catch (OperationCanceledException)
-            {
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[PlayerHand] Failed to track hands: {ex.Message}");
+                await StopTracking();
+                throw;
             }
         }
 
@@ -82,8 +82,11 @@ namespace Modules.PlayerHand.Services
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = null;
-            _subscription?.Dispose();
-            _subscription = null;
+            var connection = Interlocked.Exchange(ref _connection, null);
+            if (connection != null)
+            {
+                connection.Dispose();
+            }
         }
 
         private async UniTask StopTracking()
@@ -92,27 +95,57 @@ namespace Modules.PlayerHand.Services
             _cts?.Dispose();
             _cts = null;
 
-            _subscription?.Dispose();
-            _subscription = null;
+            var connection = Interlocked.Exchange(ref _connection, null);
+            if (connection == null)
+            {
+                return;
+            }
 
-            await UniTask.CompletedTask;
+            try
+            {
+                await connection.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[PlayerHand] Stop tracking failed: {ex.Message}");
+            }
+            finally
+            {
+                connection.Dispose();
+            }
         }
 
-        private async UniTask<IDisposable> SubscribeAsync(
+        private async UniTask SubscribeAsync(
             PlayerHandTrackingOptions options,
             CancellationToken cancellationToken = default)
         {
             var connection = _connectionFactory.Create(options.HubUri, options.AccessToken);
             RegisterHandlers(connection);
-
-            await connection.StartAsync(cancellationToken);
-            await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
+            try
             {
-                GameId = options.GameId,
-                PlayerId = options.PlayerId
-            }, cancellationToken);
+                await connection.StartAsync(cancellationToken);
+                await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
+                {
+                    GameId = options.GameId,
+                    PlayerId = options.PlayerId
+                }, cancellationToken);
+            }
+            catch
+            {
+                try
+                {
+                    await connection.StopAsync(cancellationToken);
+                }
+                catch
+                {
+                    // ignore stop errors on failed connect path
+                }
 
-            return new Subscription(connection);
+                connection.Dispose();
+                throw;
+            }
+
+            _connection = connection;
         }
 
         private void RegisterHandlers(ISignalRConnection connection)
@@ -135,7 +168,8 @@ namespace Modules.PlayerHand.Services
                 }
 
                 var playerId = payload?.PlayerId ?? string.Empty;
-                _standardSnapshot.OnNext(new PlayerHandSnapshotEvent(playerId, mapped));
+                var revision = payload?.Revision ?? 0L;
+                _standardSnapshot.OnNext(new PlayerHandSnapshotEvent(playerId, mapped, revision));
             });
 
             connection.On<BonusCardChangedDto>("BonusCardAddedToHand", payload =>
@@ -162,6 +196,34 @@ namespace Modules.PlayerHand.Services
                     new BonusCardData(payload.BonusType)));
             });
 
+            connection.On<CardsTransferredDto>("CardsTransferred", payload =>
+            {
+                if (payload == null)
+                {
+                    return;
+                }
+
+                var playerId = payload.PlayerId ?? string.Empty;
+                var eventSeq = payload.EventSeq;
+                var completedSet = payload.CompletedSet;
+                var completedSetRank = payload.CompletedSetRank ?? string.Empty;
+                var cards = payload.Cards ?? Array.Empty<TransferCardDto>();
+                foreach (var card in cards)
+                {
+                    if (string.IsNullOrWhiteSpace(card?.Rank) || string.IsNullOrWhiteSpace(card?.Suit))
+                    {
+                        continue;
+                    }
+
+                    _standardCardRemoved.OnNext(new PlayerHandStandardCardEvent(
+                        playerId,
+                        new StandardCardData(card.Rank, card.Suit),
+                        eventSeq,
+                        completedSet,
+                        completedSetRank));
+                }
+            });
+
             connection.On<CardsReceivedDto>("CardsReceived", payload =>
             {
                 if (payload == null)
@@ -169,6 +231,10 @@ namespace Modules.PlayerHand.Services
                     return;
                 }
 
+                var playerId = payload.PlayerId ?? string.Empty;
+                var eventSeq = payload.EventSeq;
+                var completedSet = payload.CompletedSet;
+                var completedSetRank = payload.CompletedSetRank ?? string.Empty;
                 var standard = new List<StandardCardData>();
                 var bonus = new List<BonusCardData>();
                 if (payload.Cards != null)
@@ -181,40 +247,25 @@ namespace Modules.PlayerHand.Services
                         }
                         else if (!string.IsNullOrWhiteSpace(card?.Rank) && !string.IsNullOrWhiteSpace(card?.Suit))
                         {
-                            standard.Add(new StandardCardData(card.Rank, card.Suit));
+                            var standardCard = new StandardCardData(card.Rank, card.Suit);
+                            standard.Add(standardCard);
+                            _standardCardAdded.OnNext(new PlayerHandStandardCardEvent(
+                                playerId,
+                                standardCard,
+                                eventSeq));
                         }
                     }
                 }
 
                 _cardsReceived.OnNext(new CardsReceivedEvent(
-                    payload.PlayerId,
+                    playerId,
                     payload.Source ?? string.Empty,
                     standard,
-                    bonus));
+                    bonus,
+                    eventSeq,
+                    completedSet,
+                    completedSetRank));
             });
-        }
-
-        private sealed class Subscription : IDisposable
-        {
-            private readonly ISignalRConnection _connection;
-            private bool _disposed;
-
-            public Subscription(ISignalRConnection connection)
-            {
-                _connection = connection;
-            }
-
-            public void Dispose()
-            {
-                if (_disposed)
-                {
-                    return;
-                }
-
-                _disposed = true;
-                _connection.StopAsync().Forget();
-                _connection.Dispose();
-            }
         }
 
         private sealed class JoinGameRequestDto
@@ -235,6 +286,7 @@ namespace Modules.PlayerHand.Services
         {
             public string PlayerId { get; set; }
             public HandCardDto[] Cards { get; set; }
+            public long Revision { get; set; }
         }
 
         [Serializable]
@@ -250,6 +302,20 @@ namespace Modules.PlayerHand.Services
             public string PlayerId { get; set; }
             public string Source { get; set; }
             public TransferCardDto[] Cards { get; set; }
+            public long EventSeq { get; set; }
+            public bool CompletedSet { get; set; }
+            public string CompletedSetRank { get; set; }
+        }
+
+        [Serializable]
+        private sealed class CardsTransferredDto
+        {
+            public string PlayerId { get; set; }
+            public string Destination { get; set; }
+            public TransferCardDto[] Cards { get; set; }
+            public long EventSeq { get; set; }
+            public bool CompletedSet { get; set; }
+            public string CompletedSetRank { get; set; }
         }
 
         [Serializable]

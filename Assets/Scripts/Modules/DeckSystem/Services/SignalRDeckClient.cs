@@ -23,7 +23,7 @@ namespace Modules.DeckSystem.Services
         private readonly Subject<DeckPeekedEvent> _peeked = new();
         private readonly Subject<DeckAdjustedEvent> _adjusted = new();
         private CancellationTokenSource _cts;
-        private IDisposable _subscription;
+        private ISignalRConnection _connection;
 
         public SignalRDeckClient(
             ISignalRConnectionFactory connectionFactory,
@@ -49,7 +49,8 @@ namespace Modules.DeckSystem.Services
 
             await StopTracking();
 
-            _cts = new CancellationTokenSource();
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var token = _cts.Token;
             try
             {
                 var options = new DeckTrackingOptions(
@@ -58,15 +59,14 @@ namespace Modules.DeckSystem.Services
                     session.GameId,
                     session.PlayerId);
 
-                _subscription = await SubscribeAsync(options, _cts.Token);
+                await SubscribeAsync(options, token);
                 Debug.Log($"[DeckSystem] Subscribed to deck updates for {session.PlayerId}.");
-            }
-            catch (OperationCanceledException)
-            {
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[DeckSystem] Failed to track deck state: {ex.Message}");
+                await StopTracking();
+                throw;
             }
         }
 
@@ -79,7 +79,9 @@ namespace Modules.DeckSystem.Services
         {
             _cts?.Cancel();
             _cts?.Dispose();
-            _subscription?.Dispose();
+            _cts = null;
+            var connection = Interlocked.Exchange(ref _connection, null);
+            connection?.Dispose();
         }
 
         private async UniTask StopTracking()
@@ -88,25 +90,57 @@ namespace Modules.DeckSystem.Services
             _cts?.Dispose();
             _cts = null;
 
-            _subscription?.Dispose();
-            _subscription = null;
+            var connection = Interlocked.Exchange(ref _connection, null);
+            if (connection == null)
+            {
+                return;
+            }
+
+            try
+            {
+                await connection.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[DeckSystem] Stop tracking failed: {ex.Message}");
+            }
+            finally
+            {
+                connection.Dispose();
+            }
         }
 
-        private async UniTask<IDisposable> SubscribeAsync(
+        private async UniTask SubscribeAsync(
             DeckTrackingOptions options,
             CancellationToken cancellationToken = default)
         {
             var connection = _connectionFactory.Create(options.HubUri, options.AccessToken);
             RegisterHandlers(connection);
-
-            await connection.StartAsync(cancellationToken);
-            await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
+            try
             {
-                GameId = options.GameId,
-                PlayerId = options.PlayerId
-            }, cancellationToken);
+                await connection.StartAsync(cancellationToken);
+                await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
+                {
+                    GameId = options.GameId,
+                    PlayerId = options.PlayerId
+                }, cancellationToken);
+            }
+            catch
+            {
+                try
+                {
+                    await connection.StopAsync(cancellationToken);
+                }
+                catch
+                {
+                    // ignore stop errors on failed connect path
+                }
 
-            return new Subscription(connection);
+                connection.Dispose();
+                throw;
+            }
+
+            _connection = connection;
         }
 
         private void RegisterHandlers(ISignalRConnection connection)
@@ -179,29 +213,6 @@ namespace Modules.DeckSystem.Services
 
                 _adjusted.OnNext(new DeckAdjustedEvent(payload.Delta));
             });
-        }
-
-        private sealed class Subscription : IDisposable
-        {
-            private readonly ISignalRConnection _connection;
-            private bool _disposed;
-
-            public Subscription(ISignalRConnection connection)
-            {
-                _connection = connection;
-            }
-
-            public void Dispose()
-            {
-                if (_disposed)
-                {
-                    return;
-                }
-
-                _disposed = true;
-                _connection.StopAsync().Forget();
-                _connection.Dispose();
-            }
         }
 
         private sealed class JoinGameRequestDto

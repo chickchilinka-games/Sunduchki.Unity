@@ -15,6 +15,8 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
 {
     public class PlayerHandSystemMonoInstaller : MonoInstaller
     {
+        public const string StandardCardViewPrefabBindingId = "player_hand.standard_prefab";
+
         [SerializeField] private RankStackView _standardCardViewPrefab;
         [SerializeField] private BonusCardView _bonusCardViewPrefab;
 
@@ -26,7 +28,6 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
             Container.BindInterfacesAndSelfTo<BonusCardViewModelStore>().AsSingle();
             Container.BindInterfacesAndSelfTo<PlayerHandPresenter>().AsSingle();
             Container.BindInterfacesAndSelfTo<PlayerHandInteractionPresenter>().AsSingle();
-            Container.BindInterfacesAndSelfTo<PlayerHandSetCompletionPresenter>().AsSingle();
             Container.BindInterfacesAndSelfTo<BonusHandPresenter>().AsSingle();
             Container.BindInterfacesAndSelfTo<BonusHandInteractionPresenter>().AsSingle();
             Container.BindInterfacesAndSelfTo<CardRequestPresentationPresenter>().AsSingle();
@@ -36,7 +37,6 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
             Container.BindInterfacesTo<PlayerHandSnapshotPresentationRule>().AsSingle();
             Container.BindInterfacesTo<PlayerHandTurnPresentationRule>().AsSingle();
             Container.BindInterfacesTo<PlayerHandDefensePresentationRule>().AsSingle();
-            Container.BindInterfacesTo<PlayerHandSetCompletionPresentationRule>().AsSingle();
             Container.BindInterfacesTo<PlayerHandCardRequestPresentationRule>().AsSingle();
             Container.BindInterfacesTo<PlayerHandBonusPresentationRule>().AsSingle();
             Container.BindInterfacesTo<BonusHandConfigPresentationRule>().AsSingle();
@@ -53,6 +53,8 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
             {
                 throw new InvalidOperationException("Standard card view prefab is not assigned.");
             }
+
+            Container.BindInstance(_standardCardViewPrefab).WithId(StandardCardViewPrefabBindingId);
 
             Container.BindMemoryPool<RankStackView, RankStackViewPool>()
                 .WithInitialSize(0)

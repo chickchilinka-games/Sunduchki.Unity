@@ -1,3 +1,4 @@
+using Features.AppLifecycle.Rules;
 using Features.AppLifecycle.Services;
 using Features.AppLifecycle.States.Boot;
 using Features.AppLifecycle.States.Boot.Substeps;
@@ -21,6 +22,8 @@ namespace Features.AppLifecycle.Bootstrap
             Container.Bind<LobbyFlowService>().AsSingle();
             Container.Bind<GameResultsFlowService>().AsSingle();
             Container.Bind<GameMenuFlowService>().AsSingle();
+            Container.BindInterfacesTo<RestartApplicationOnSignoutRule>().AsSingle();
+            
             Container.BindStateMachineAsSingle<IAppStateMachine, AppStateMachine>();
             Container.BindStateMachine<ISubStateMachine, SubStateMachine>();
 

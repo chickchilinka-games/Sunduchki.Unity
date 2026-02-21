@@ -13,4 +13,4 @@ MonoBehaviour:
   m_Name: AppBuildConfig
   m_EditorClassIdentifier: 
   <Version>k__BackingField: 1.0b1
-  <EnvironmentId>k__BackingField: DEV
+  <EnvironmentId>k__BackingField: TEST

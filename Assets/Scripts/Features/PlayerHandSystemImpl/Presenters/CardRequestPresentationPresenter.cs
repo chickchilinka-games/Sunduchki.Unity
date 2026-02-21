@@ -87,7 +87,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
                 return;
             }
 
-            if (!string.Equals(evt.PlayerId, localId, StringComparison.Ordinal))
+            if (!string.Equals(evt.PlayerId, localId, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
@@ -111,7 +111,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
 
             if (evt.EventType == CardRequestEventType.Requested)
             {
-                if (string.Equals(evt.AskerId, localId, StringComparison.Ordinal))
+                if (string.Equals(evt.AskerId, localId, StringComparison.OrdinalIgnoreCase))
                 {
                     SetAwaitingAsk();
                 }
@@ -120,7 +120,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
 
             if (evt.EventType == CardRequestEventType.Denied)
             {
-                if (string.Equals(evt.AskerId, localId, StringComparison.Ordinal))
+                if (string.Equals(evt.AskerId, localId, StringComparison.OrdinalIgnoreCase))
                 {
                     ClearAwaitingAsk();
                     MarkAskResolved();
@@ -130,7 +130,7 @@ namespace Features.PlayerHandSystemImpl.Presenters
 
             if (evt.EventType == CardRequestEventType.Transferred)
             {
-                if (string.Equals(evt.TargetId, localId, StringComparison.Ordinal))
+                if (string.Equals(evt.TargetId, localId, StringComparison.OrdinalIgnoreCase))
                 {
                     ClearAwaitingAsk();
                     MarkAskResolved();

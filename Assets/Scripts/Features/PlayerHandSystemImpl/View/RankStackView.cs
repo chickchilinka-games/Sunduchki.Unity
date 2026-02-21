@@ -27,6 +27,9 @@ namespace Features.PlayerHandSystemImpl.View
         private const float TransferFadeDuration = 0.2f;
         private const float SetCompleteFlashDuration = 0.08f;
         private const float SetCompleteFadeDuration = 0.2f;
+        private const float TweenTimeoutBuffer = 0.35f;
+        private const int CardReadyPollMs = 30;
+        private const int CardReadyAttempts = 8;
         private static readonly Color DisabledTint = new(0.65f, 0.65f, 0.65f, 1f);
 
         [SerializeField] private Image[] _cards;
@@ -38,6 +41,7 @@ namespace Features.PlayerHandSystemImpl.View
         private CompositeDisposable _bindings;
         private readonly List<ManagedAsset<Sprite>> _cardSprites = new();
         private readonly Dictionary<Image, Vector2> _cardBasePositions = new();
+        private readonly List<string> _resolvedSuits = new();
         private RectTransform _rectTransform;
         private Vector2 _baseAnchoredPosition;
         private readonly SemaphoreSlim _animationGate = new(1, 1);
@@ -45,8 +49,10 @@ namespace Features.PlayerHandSystemImpl.View
         private bool _pendingSetComplete;
         private int _externalAnimationCount;
         private bool _suppressRemovalAnimation;
+        private int _bindingVersion;
 
         public bool HasPendingSetComplete => _pendingSetComplete;
+        public bool HasActiveAnimations => _externalAnimationCount > 0 || _animationGate.CurrentCount == 0;
 
         [Inject]
         public void Construct(AssetService assetService)
@@ -86,11 +92,12 @@ namespace Features.PlayerHandSystemImpl.View
             ResetBindings();
             _viewModel = viewModel;
             _bindings = new CompositeDisposable();
+            var expectedVersion = _bindingVersion;
 
-            await UpdateCardsAsync(viewModel.Cards.CurrentValue);
+            await UpdateCardsAsync(viewModel.Cards.CurrentValue, expectedVersion);
 
             viewModel.Cards
-                .Subscribe(cards => UpdateCardsAsync(cards).Forget())
+                .Subscribe(cards => UpdateCardsAsync(cards, expectedVersion).Forget())
                 .AddTo(_bindings);
 
             viewModel.CanPress
@@ -126,8 +133,13 @@ namespace Features.PlayerHandSystemImpl.View
             ApplyTint(canPress ? Color.white : DisabledTint);
         }
 
-        private async UniTask UpdateCardsAsync(IReadOnlyList<StandardCardItemViewModel> cards)
+        private async UniTask UpdateCardsAsync(IReadOnlyList<StandardCardItemViewModel> cards, int expectedVersion)
         {
+            if (expectedVersion != _bindingVersion)
+            {
+                return;
+            }
+
             if (_cards == null || _cards.Length == 0 || _assetService == null || _viewModel == null)
             {
                 return;
@@ -147,6 +159,8 @@ namespace Features.PlayerHandSystemImpl.View
                 .Where(suit => !string.IsNullOrWhiteSpace(suit))
                 .Select(suit => suit.Trim().ToLowerInvariant())
                 .ToList() ?? new List<string>();
+            _resolvedSuits.Clear();
+            _resolvedSuits.AddRange(normalized);
 
             ReleaseCardSprites();
 
@@ -172,6 +186,12 @@ namespace Features.PlayerHandSystemImpl.View
                 try
                 {
                     var handle = await _assetService.Get<Sprite>(spriteId);
+                    if (expectedVersion != _bindingVersion)
+                    {
+                        handle?.Dispose();
+                        return;
+                    }
+
                     _cardSprites.Add(handle);
                     card.sprite = handle.Asset;
                     card.enabled = card.sprite != null;
@@ -284,6 +304,8 @@ namespace Features.PlayerHandSystemImpl.View
             _bindings?.Dispose();
             _bindings = null;
             _viewModel = null;
+            _bindingVersion++;
+            _resolvedSuits.Clear();
         }
 
         private void CacheCardPositions()
@@ -386,6 +408,11 @@ namespace Features.PlayerHandSystemImpl.View
                 : UniTask.WaitUntil(() => _externalAnimationCount == 0);
         }
 
+        public void ForceCompleteExternalAnimations()
+        {
+            _externalAnimationCount = 0;
+        }
+
         private void EndExternalAnimation()
         {
             if (_externalAnimationCount <= 0)
@@ -404,7 +431,19 @@ namespace Features.PlayerHandSystemImpl.View
                 return false;
             }
 
-            var index = ResolveCardIndex(suit);
+            int index;
+            if (!string.IsNullOrWhiteSpace(suit))
+            {
+                if (!TryResolveCardIndexBySuit(suit, out index))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                index = ResolveCardIndex(string.Empty);
+            }
+
             if (index < 0 || index >= _cards.Length)
             {
                 return false;
@@ -418,6 +457,27 @@ namespace Features.PlayerHandSystemImpl.View
 
             image = candidate;
             return true;
+        }
+
+        private bool TryResolveCardIndexBySuit(string suit, out int index)
+        {
+            index = -1;
+            if (_resolvedSuits.Count == 0 || string.IsNullOrWhiteSpace(suit))
+            {
+                return false;
+            }
+
+            var normalized = suit.Trim().ToLowerInvariant();
+            for (var i = 0; i < _resolvedSuits.Count && i < _cards.Length; i++)
+            {
+                if (string.Equals(_resolvedSuits[i], normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    index = i;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public void SetCardVisibility(Image image, bool visible)
@@ -472,7 +532,8 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             var cardIndex = ResolveCardIndex(suit);
-            return EnqueueAnimation(() => PlayReceiveFromSourceAsync(source, cardIndex));
+            var expectedVersion = _bindingVersion;
+            return EnqueueAnimation(() => PlayReceiveFromSourceAsync(source, cardIndex, expectedVersion));
         }
 
         private async UniTask PlayReceiveAnimationAsync(int cardIndex)
@@ -498,11 +559,16 @@ namespace Features.PlayerHandSystemImpl.View
             var sequence = DOTween.Sequence();
             sequence.Append(rect.DOAnchorPos(basePos, ReceiveDuration).SetEase(Ease.OutQuad));
             sequence.Join(card.DOFade(1f, ReceiveDuration));
-            await sequence.AsyncWaitForCompletion();
+            await AwaitTweenAsync(sequence, ReceiveDuration + TweenTimeoutBuffer);
         }
 
-        private async UniTask PlayReceiveFromSourceAsync(RectTransform source, int cardIndex)
+        private async UniTask PlayReceiveFromSourceAsync(RectTransform source, int cardIndex, int expectedVersion)
         {
+            if (expectedVersion != _bindingVersion)
+            {
+                return;
+            }
+
             if (_cards == null || cardIndex < 0 || cardIndex >= _cards.Length)
             {
                 return;
@@ -515,6 +581,20 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             if (!await WaitForCardReadyAsync(cardIndex))
+            {
+                if (!TryResolveReadyCardIndex(out cardIndex))
+                {
+                    return;
+                }
+            }
+
+            if (expectedVersion != _bindingVersion)
+            {
+                return;
+            }
+
+            card = _cards[cardIndex];
+            if (card == null)
             {
                 return;
             }
@@ -538,7 +618,7 @@ namespace Features.PlayerHandSystemImpl.View
             sequence.Append(card.DOFade(ReceivePreFadeAlpha, ReceivePreFadeDuration));
             sequence.Append(rect.DOMove(targetWorld, ReceiveDuration).SetEase(Ease.OutQuad));
             sequence.Join(card.DOFade(1f, ReceiveDuration));
-            await sequence.AsyncWaitForCompletion();
+            await AwaitTweenAsync(sequence, ReceivePreFadeDuration + ReceiveDuration + TweenTimeoutBuffer);
             rect.anchoredPosition = basePos;
         }
 
@@ -549,7 +629,7 @@ namespace Features.PlayerHandSystemImpl.View
                 return false;
             }
 
-            for (var i = 0; i < 20; i++)
+            for (var i = 0; i < CardReadyAttempts; i++)
             {
                 var card = _cards[cardIndex];
                 if (card != null && card.gameObject.activeSelf && card.sprite != null)
@@ -557,7 +637,28 @@ namespace Features.PlayerHandSystemImpl.View
                     return true;
                 }
 
-                await UniTask.Delay(TimeSpan.FromMilliseconds(50));
+                await UniTask.Delay(TimeSpan.FromMilliseconds(CardReadyPollMs), DelayType.UnscaledDeltaTime);
+            }
+
+            return false;
+        }
+
+        private bool TryResolveReadyCardIndex(out int index)
+        {
+            index = -1;
+            if (_cards == null || _cards.Length == 0)
+            {
+                return false;
+            }
+
+            for (var i = _cards.Length - 1; i >= 0; i--)
+            {
+                var card = _cards[i];
+                if (card != null && card.gameObject.activeSelf && card.sprite != null)
+                {
+                    index = i;
+                    return true;
+                }
             }
 
             return false;
@@ -570,7 +671,7 @@ namespace Features.PlayerHandSystemImpl.View
                 return 0;
             }
 
-            if (_viewModel == null)
+            if (_resolvedSuits.Count == 0)
             {
                 return Mathf.Clamp(_lastCount - 1, 0, _cards.Length - 1);
             }
@@ -578,18 +679,16 @@ namespace Features.PlayerHandSystemImpl.View
             var normalized = string.IsNullOrWhiteSpace(suit) ? string.Empty : suit.Trim().ToLowerInvariant();
             if (!string.IsNullOrWhiteSpace(normalized))
             {
-                var suits = _viewModel.Cards.CurrentValue;
-                for (var index = 0; index < suits.Count && index < _cards.Length; index++)
+                for (var index = 0; index < _resolvedSuits.Count && index < _cards.Length; index++)
                 {
-                    var suitValue = suits[index]?.Suit;
-                    if (string.Equals(suitValue, normalized, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(_resolvedSuits[index], normalized, StringComparison.OrdinalIgnoreCase))
                     {
                         return index;
                     }
                 }
             }
 
-            var fallback = _viewModel.Cards.CurrentValue.Count - 1;
+            var fallback = _resolvedSuits.Count - 1;
             return Mathf.Clamp(fallback, 0, _cards.Length - 1);
         }
 
@@ -606,7 +705,8 @@ namespace Features.PlayerHandSystemImpl.View
             sequence.Append(_canvasGroup.DOFade(0.3f, SetCompleteFlashDuration));
             sequence.Append(_canvasGroup.DOFade(1f, SetCompleteFlashDuration));
             sequence.Append(_canvasGroup.DOFade(0f, SetCompleteFadeDuration));
-            await sequence.AsyncWaitForCompletion();
+            await AwaitTweenAsync(sequence,
+                (SetCompleteFlashDuration * 2f) + SetCompleteFadeDuration + TweenTimeoutBuffer);
         }
 
         private void ApplyTint(Color color)
@@ -637,9 +737,9 @@ namespace Features.PlayerHandSystemImpl.View
 
             if (_rectTransform != null)
             {
-                await _rectTransform
-                    .DOShakeAnchorPos(TransferShakeDuration, TransferShakeStrength, 10, 0f)
-                    .AsyncWaitForCompletion();
+                var shake = _rectTransform
+                    .DOShakeAnchorPos(TransferShakeDuration, TransferShakeStrength, 10, 0f);
+                await AwaitTweenAsync(shake, TransferShakeDuration + TweenTimeoutBuffer);
             }
 
             var sequence = DOTween.Sequence();
@@ -649,7 +749,24 @@ namespace Features.PlayerHandSystemImpl.View
                 var start = _rectTransform.anchoredPosition;
                 sequence.Join(_rectTransform.DOAnchorPos(start + new Vector2(0f, ReceiveOffsetY), TransferFadeDuration));
             }
-            await sequence.AsyncWaitForCompletion();
+            await AwaitTweenAsync(sequence, TransferFadeDuration + TweenTimeoutBuffer);
+        }
+
+        private static async UniTask AwaitTweenAsync(Tween tween, float timeoutSeconds)
+        {
+            if (tween == null)
+            {
+                return;
+            }
+
+            var safeTimeout = Mathf.Max(0.1f, timeoutSeconds);
+            var completed = tween.AsyncWaitForCompletion().AsUniTask();
+            var timeout = UniTask.Delay(TimeSpan.FromSeconds(safeTimeout), DelayType.UnscaledDeltaTime);
+            var winner = await UniTask.WhenAny(completed, timeout);
+            if (winner != 0 && tween.IsActive())
+            {
+                tween.Kill(false);
+            }
         }
 
         private sealed class ExternalAnimationScope : IDisposable

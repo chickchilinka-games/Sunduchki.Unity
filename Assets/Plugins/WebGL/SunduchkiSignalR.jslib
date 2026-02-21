@@ -52,11 +52,21 @@ mergeInto(LibraryManager.library, {
         var hostName = UTF8ToString(hostPtr || 0);
 
         try {
-            var builder = new signalR.HubConnectionBuilder().withUrl(url, token ? {
-                accessTokenFactory: function () {
+            var withUrlOptions = {};
+            if (token) {
+                withUrlOptions.accessTokenFactory = function () {
                     return token;
-                }
-            } : undefined).withAutomaticReconnect();
+                };
+            }
+
+            if (signalR.HttpTransportType && signalR.HttpTransportType.WebSockets) {
+                withUrlOptions.transport = signalR.HttpTransportType.WebSockets;
+                withUrlOptions.skipNegotiation = true;
+            }
+
+            var builder = new signalR.HubConnectionBuilder()
+                .withUrl(url, withUrlOptions)
+                .withAutomaticReconnect();
 
             var connection = builder.build();
             var id = Module.SunduchkiSignalR.nextId++;
@@ -78,6 +88,13 @@ mergeInto(LibraryManager.library, {
                 delete Module.SunduchkiSignalR.connections[id];
             });
 
+            connection.onreconnected(function (newConnectionId) {
+                Module.SunduchkiSignalR.sendEnvelope(handle, {
+                    type: 'reconnected',
+                    requestId: newConnectionId || ''
+                });
+            });
+
             return id;
         } catch (err) {
             console.error('[SignalR.jslib] Failed to create connection:', err);
@@ -93,16 +110,23 @@ mergeInto(LibraryManager.library, {
             return;
         }
 
-        handle.connection.start()
-            .then(function () {
-                helper.sendEnvelope(handle, { type: 'started' });
-            })
-            .catch(function (err) {
-                helper.sendEnvelope(handle, {
-                    type: 'startFailed',
-                    error: err ? err.toString() : 'Unknown error'
+        try {
+            handle.connection.start()
+                .then(function () {
+                    helper.sendEnvelope(handle, { type: 'started' });
+                })
+                .catch(function (err) {
+                    helper.sendEnvelope(handle, {
+                        type: 'startFailed',
+                        error: err ? err.toString() : 'Unknown error'
+                    });
                 });
+        } catch (err) {
+            helper.sendEnvelope(handle, {
+                type: 'startFailed',
+                error: err ? err.toString() : 'Unknown error'
             });
+        }
     },
 
     Sunduchki_SignalR_Stop__deps: ['$SunduchkiSignalRHelper'],

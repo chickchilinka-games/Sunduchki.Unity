@@ -18,7 +18,7 @@ namespace Modules.TurnSystem.Services
         private readonly IGameHubConfigProvider _configProvider;
         private readonly Subject<string> _turnAdvanced = new();
         private CancellationTokenSource _trackingCts;
-        private IDisposable _subscription;
+        private ISignalRConnection _connection;
 
         public SignalRTurnClient(
             ISignalRConnectionFactory connectionFactory,
@@ -39,7 +39,8 @@ namespace Modules.TurnSystem.Services
 
             await StopTracking();
 
-            _trackingCts = new CancellationTokenSource();
+            _trackingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var token = _trackingCts.Token;
             try
             {
                 var options = new TurnTrackingOptions(
@@ -48,14 +49,13 @@ namespace Modules.TurnSystem.Services
                     session.GameId,
                     session.PlayerId);
 
-                _subscription = await SubscribeAsync(options, _trackingCts.Token);
-            }
-            catch (OperationCanceledException)
-            {
+                await SubscribeAsync(options, token);
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[TurnSystem] Failed to start tracking turns: {ex.Message}");
+                await StopTracking();
+                throw;
             }
         }
 
@@ -68,59 +68,69 @@ namespace Modules.TurnSystem.Services
         {
             _trackingCts?.Cancel();
             _trackingCts?.Dispose();
-            _subscription?.Dispose();
+            _trackingCts = null;
+            var connection = Interlocked.Exchange(ref _connection, null);
+            connection?.Dispose();
         }
 
-        private async UniTask<IDisposable> SubscribeAsync(
+        private async UniTask SubscribeAsync(
             TurnTrackingOptions options,
             CancellationToken cancellationToken = default)
         {
             var connection = _connectionFactory.Create(options.HubUri, options.AccessToken);
             connection.On<string>("TurnAdvanced", playerId => _turnAdvanced.OnNext(playerId));
-
-            await connection.StartAsync(cancellationToken);
-            await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
+            try
             {
-                GameId = options.GameId,
-                PlayerId = options.PlayerId
-            }, cancellationToken);
+                await connection.StartAsync(cancellationToken);
+                await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
+                {
+                    GameId = options.GameId,
+                    PlayerId = options.PlayerId
+                }, cancellationToken);
+            }
+            catch
+            {
+                connection.RemoveHandler("TurnAdvanced");
+                try
+                {
+                    await connection.StopAsync(cancellationToken);
+                }
+                catch
+                {
+                    // ignore stop errors on failed connect path
+                }
 
-            return new Subscription(connection);
+                connection.Dispose();
+                throw;
+            }
+
+            _connection = connection;
         }
 
-        private UniTask StopTracking()
+        private async UniTask StopTracking()
         {
             _trackingCts?.Cancel();
             _trackingCts?.Dispose();
             _trackingCts = null;
 
-            _subscription?.Dispose();
-            _subscription = null;
-
-            return UniTask.CompletedTask;
-        }
-
-        private sealed class Subscription : IDisposable
-        {
-            private readonly ISignalRConnection _connection;
-            private bool _disposed;
-
-            public Subscription(ISignalRConnection connection)
+            var connection = Interlocked.Exchange(ref _connection, null);
+            if (connection == null)
             {
-                _connection = connection;
+                return;
             }
 
-            public void Dispose()
+            connection.RemoveHandler("TurnAdvanced");
+            try
             {
-                if (_disposed)
-                {
-                    return;
-                }
-
-                _disposed = true;
-                _connection.RemoveHandler("TurnAdvanced");
-                _connection.StopAsync().Forget();
-                _connection.Dispose();
+                await connection.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[TurnSystem] Stop tracking failed: {ex.Message}");
+            }
+            finally
+            {
+                connection.Dispose();
             }
         }
 

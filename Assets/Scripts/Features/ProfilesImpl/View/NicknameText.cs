@@ -27,7 +27,7 @@ namespace Features.ProfilesImpl.View
         private void Awake()
         {
             _authenticationService.UserContextStream
-                .Subscribe(user => _nameField.text = user.Username)
+                .Subscribe(user => _nameField.text = user?.Username ?? "")
                 .AddTo(this);
             _nameField.OnEndEditAsObservable()
                 .Subscribe(value => _profileService.ChangeDisplayNameAsync(value).Forget())

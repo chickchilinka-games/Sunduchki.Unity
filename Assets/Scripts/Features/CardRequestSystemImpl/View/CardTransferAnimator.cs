@@ -27,6 +27,7 @@ namespace Features.CardRequestSystemImpl.View
         [SerializeField] private float _toTargetDuration = 0.45f;
         [SerializeField] private float _fadeOutDuration = 0.2f;
         [SerializeField] private float _staggerDelay = 0.08f;
+        [SerializeField] private float _animationTimeoutPadding = 0.45f;
 
         private PlayerHandService _handService;
         private AssetService _assetService;
@@ -53,8 +54,8 @@ namespace Features.CardRequestSystemImpl.View
                 return;
             }
 
-            var isFromLocal = string.Equals(evt.AskerId, localPlayerId, StringComparison.Ordinal);
-            var isToLocal = string.Equals(evt.TargetId, localPlayerId, StringComparison.Ordinal);
+            var isFromLocal = string.Equals(evt.AskerId, localPlayerId, StringComparison.OrdinalIgnoreCase);
+            var isToLocal = string.Equals(evt.TargetId, localPlayerId, StringComparison.OrdinalIgnoreCase);
             if (!isFromLocal && !isToLocal)
             {
                 return;
@@ -69,11 +70,10 @@ namespace Features.CardRequestSystemImpl.View
             var rank = NormalizeRank(evt.Rank);
             var suits = isFromLocal ? ResolveTransferSuits(evt, rank, localPlayerId, allowFallback: false) : new List<string>();
 
-            var count = evt.Count > 0 ? evt.Count : 1;
-            if (isFromLocal && count <= 0)
-            {
-                count = evt.Cards != null && evt.Cards.Count > 0 ? evt.Cards.Count : 1;
-            }
+            var count = evt.Cards != null && evt.Cards.Count > 0
+                ? evt.Cards.Count
+                : (evt.Count > 0 ? evt.Count : 1);
+
             var transferScope = new TransferScope();
             try
             {
@@ -257,7 +257,14 @@ namespace Features.CardRequestSystemImpl.View
             {
                 sequence.Append(view.DOFade(0f, _fadeOutDuration));
             }
-            await sequence.AsyncWaitForCompletion();
+            var timeoutSeconds = Mathf.Max(0.1f, _toTargetDuration + (fadeOut ? _fadeOutDuration : 0f) + _animationTimeoutPadding);
+            var completion = sequence.AsyncWaitForCompletion().AsUniTask();
+            var timeout = UniTask.Delay(TimeSpan.FromSeconds(timeoutSeconds), DelayType.UnscaledDeltaTime);
+            var winner = await UniTask.WhenAny(completion, timeout);
+            if (winner != 0 && sequence.IsActive())
+            {
+                sequence.Kill(false);
+            }
 
             Destroy(view.gameObject);
             handle?.Dispose();

@@ -21,7 +21,7 @@ namespace Modules.CardRequestSystem.Services
         private readonly Subject<CardRequestTransferredEvent> _transferred = new();
         private readonly Subject<CardRequestDeniedEvent> _denied = new();
         private CancellationTokenSource _cts;
-        private IDisposable _subscription;
+        private ISignalRConnection _connection;
 
         public SignalRCardRequestClient(
             ISignalRConnectionFactory connectionFactory,
@@ -45,7 +45,8 @@ namespace Modules.CardRequestSystem.Services
 
             await StopTracking();
 
-            _cts = new CancellationTokenSource();
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var token = _cts.Token;
             try
             {
                 var options = new CardRequestTrackingOptions(
@@ -54,14 +55,13 @@ namespace Modules.CardRequestSystem.Services
                     session.GameId,
                     session.PlayerId);
 
-                _subscription = await SubscribeAsync(options, _cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
+                await SubscribeAsync(options, token);
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[CardRequestSystem] Failed to subscribe to request events: {ex.Message}");
+                await StopTracking();
+                throw;
             }
         }
 
@@ -75,8 +75,8 @@ namespace Modules.CardRequestSystem.Services
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = null;
-            _subscription?.Dispose();
-            _subscription = null;
+            var connection = Interlocked.Exchange(ref _connection, null);
+            connection?.Dispose();
         }
 
         private async UniTask StopTracking()
@@ -85,27 +85,57 @@ namespace Modules.CardRequestSystem.Services
             _cts?.Dispose();
             _cts = null;
 
-            _subscription?.Dispose();
-            _subscription = null;
+            var connection = Interlocked.Exchange(ref _connection, null);
+            if (connection == null)
+            {
+                return;
+            }
 
-            await UniTask.CompletedTask;
+            try
+            {
+                await connection.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[CardRequestSystem] Stop tracking failed: {ex.Message}");
+            }
+            finally
+            {
+                connection.Dispose();
+            }
         }
 
-        private async UniTask<IDisposable> SubscribeAsync(
+        private async UniTask SubscribeAsync(
             CardRequestTrackingOptions options,
             CancellationToken cancellationToken = default)
         {
             var connection = _connectionFactory.Create(options.HubUri, options.AccessToken);
             RegisterHandlers(connection);
-
-            await connection.StartAsync(cancellationToken);
-            await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
+            try
             {
-                GameId = options.GameId,
-                PlayerId = options.PlayerId
-            }, cancellationToken);
+                await connection.StartAsync(cancellationToken);
+                await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
+                {
+                    GameId = options.GameId,
+                    PlayerId = options.PlayerId
+                }, cancellationToken);
+            }
+            catch
+            {
+                try
+                {
+                    await connection.StopAsync(cancellationToken);
+                }
+                catch
+                {
+                    // ignore stop errors on failed connect path
+                }
 
-            return new Subscription(connection);
+                connection.Dispose();
+                throw;
+            }
+
+            _connection = connection;
         }
 
         private void RegisterHandlers(ISignalRConnection connection)
@@ -170,29 +200,6 @@ namespace Modules.CardRequestSystem.Services
                     payload.TargetPlayerId,
                     payload.Rank));
             });
-        }
-
-        private sealed class Subscription : IDisposable
-        {
-            private readonly ISignalRConnection _connection;
-            private bool _disposed;
-
-            public Subscription(ISignalRConnection connection)
-            {
-                _connection = connection;
-            }
-
-            public void Dispose()
-            {
-                if (_disposed)
-                {
-                    return;
-                }
-
-                _disposed = true;
-                _connection.StopAsync().Forget();
-                _connection.Dispose();
-            }
         }
 
         private sealed class JoinGameRequestDto
