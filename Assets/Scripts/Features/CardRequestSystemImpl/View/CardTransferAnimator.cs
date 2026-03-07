@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
+using Features.PlayerHandSystemImpl.Utils;
 using Features.PlayerHandSystemImpl.View;
 using Modules.AssetSystem.Models;
 using Modules.AssetSystem.Services;
@@ -258,48 +259,10 @@ namespace Features.CardRequestSystemImpl.View
                 sequence.Append(view.DOFade(0f, _fadeOutDuration));
             }
             var timeoutSeconds = Mathf.Max(0.1f, _toTargetDuration + (fadeOut ? _fadeOutDuration : 0f) + _animationTimeoutPadding);
-            await AwaitTweenAsync(sequence, timeoutSeconds);
+            await TweenAwaiter.AwaitAsync(sequence, timeoutSeconds);
 
             Destroy(view.gameObject);
             handle?.Dispose();
-        }
-
-        private static async UniTask AwaitTweenAsync(Tween tween, float timeoutSeconds)
-        {
-            if (tween == null)
-            {
-                return;
-            }
-
-            tween.SetUpdate(true);
-            var completionTcs = new UniTaskCompletionSource();
-            var completionSignaled = false;
-            void SignalCompletion()
-            {
-                if (completionSignaled)
-                {
-                    return;
-                }
-
-                completionSignaled = true;
-                completionTcs.TrySetResult();
-            }
-
-            tween.OnComplete(SignalCompletion);
-            tween.OnKill(SignalCompletion);
-
-            if (!tween.IsActive() || tween.IsComplete())
-            {
-                SignalCompletion();
-            }
-
-            var safeTimeout = Mathf.Max(0.1f, timeoutSeconds);
-            var timeoutTask = UniTask.Delay(TimeSpan.FromSeconds(safeTimeout), DelayType.UnscaledDeltaTime);
-            var winner = await UniTask.WhenAny(completionTcs.Task, timeoutTask);
-            if (winner != 0 && tween.IsActive())
-            {
-                tween.Kill(false);
-            }
         }
 
         private async UniTask<SpriteResult> ResolveSpriteAsync(string rank, string suit, Image sourceImage)

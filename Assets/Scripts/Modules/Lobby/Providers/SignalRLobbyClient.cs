@@ -223,6 +223,7 @@ namespace Modules.Lobby.Providers
             _startedSignaled = true;
             Debug.Log($"[Lobby] GameStarted inferred from {source}.");
             listener.OnGameStarted();
+            RequestSyncState().Forget();
         }
 
         private sealed class PlayerJoinedDto

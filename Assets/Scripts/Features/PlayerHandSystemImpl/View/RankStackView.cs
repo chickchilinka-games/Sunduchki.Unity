@@ -4,9 +4,10 @@ using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
-using Features.PlayerHandSystemImpl.ViewModel;
+using Features.PlayerHandSystemImpl.Presentation.Data;
+using Features.PlayerHandSystemImpl.Presentation.ViewModel;
+using Features.PlayerHandSystemImpl.Utils;
 using Modules.AssetSystem.Models;
-using Modules.AssetSystem.Services;
 using R3;
 using UnityEngine;
 using UnityEngine.UI;
@@ -16,33 +17,33 @@ namespace Features.PlayerHandSystemImpl.View
 {
     public class RankStackView : MonoBehaviour
     {
-        private const string SpriteIdFormat = "Art/Cards/Standard/card_{0}_{1}";
-        private const float ReceiveOffsetY = 24f;
-        private const float ReceiveOffsetXFromOpponent = 36f;
-        private const float ReceiveOffsetYFromDeck = -32f;
-        private const float ReceiveDuration = 0.28f;
-        private const float TransferShakeDuration = 0.12f;
-        private const float TransferShakeStrength = 6f;
-        private const float TransferFadeDuration = 0.2f;
-        private const float SetCompleteFlashDuration = 0.08f;
-        private const float SetCompleteFadeDuration = 0.2f;
-        private const float ReceiveResolveTimeoutSeconds = 0.8f;
-        private const float TweenTimeoutBuffer = 0.35f;
         private static readonly Color DisabledTint = new(0.65f, 0.65f, 0.65f, 1f);
 
         [SerializeField] private Image[] _cards;
         [SerializeField] private Button _button;
         [SerializeField] private CanvasGroup _canvasGroup;
+        [Header("Animation")]
+        [SerializeField] private float _receiveOffsetY = 24f;
+        [SerializeField] private float _receiveOffsetXFromOpponent = 36f;
+        [SerializeField] private float _receiveOffsetYFromDeck = -32f;
+        [SerializeField, Min(0.01f)] private float _receiveDuration = 0.28f;
+        [SerializeField, Min(0.01f)] private float _transferShakeDuration = 0.12f;
+        [SerializeField] private float _transferShakeStrength = 6f;
+        [SerializeField, Min(0.01f)] private float _transferFadeDuration = 0.2f;
+        [SerializeField, Min(0.01f)] private float _setCompleteFlashDuration = 0.08f;
+        [SerializeField, Min(0.01f)] private float _setCompleteFadeDuration = 0.2f;
+        [SerializeField, Min(0.01f)] private float _tweenTimeoutBuffer = 0.35f;
 
         private readonly List<ManagedAsset<Sprite>> _cardSprites = new();
         private readonly Dictionary<Image, Vector2> _cardBasePositions = new();
         private readonly List<string> _resolvedSuits = new();
         private readonly HashSet<string> _pendingReceiveSuits = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Queue<RankCardsReceivedEvent> _deferredReceiveBatches = new();
         private readonly SemaphoreSlim _animationGate = new(1, 1);
         private Func<RectTransform> _deckReceiveOriginProvider;
         private Func<RectTransform> _opponentReceiveOriginProvider;
 
-        private AssetService _assetService;
+        private CardSpriteResolver _cardSpriteResolver;
         private RankStackViewModel _viewModel;
         private CompositeDisposable _bindings;
         private RectTransform _rectTransform;
@@ -52,6 +53,7 @@ namespace Features.PlayerHandSystemImpl.View
         private bool _isAnimationRunning;
         private int _externalAnimationCount;
         private int _bindingVersion;
+        private CancellationTokenSource _bindingsCts;
 
         public bool HasCompletedSetAnimation => _hasCompletedSetAnimation;
         public bool HasActiveAnimations => _isAnimationRunning || _externalAnimationCount > 0;
@@ -60,9 +62,9 @@ namespace Features.PlayerHandSystemImpl.View
         public event Action<RankStackView> AnimationsBecameIdle;
 
         [Inject]
-        public void Construct(AssetService assetService)
+        public void Construct(CardSpriteResolver cardSpriteResolver)
         {
-            _assetService = assetService;
+            _cardSpriteResolver = cardSpriteResolver;
         }
 
         private void Awake()
@@ -101,13 +103,15 @@ namespace Features.PlayerHandSystemImpl.View
             ResetAnimations();
 
             _viewModel = viewModel;
+            _bindingsCts = new CancellationTokenSource();
             _bindings = new CompositeDisposable();
             var expectedVersion = _bindingVersion;
+            var token = _bindingsCts.Token;
 
-            await UpdateCardsAsync(viewModel.Cards.CurrentValue, expectedVersion);
+            await UpdateCardsAsync(viewModel.Cards.CurrentValue, expectedVersion, token);
 
             viewModel.Cards
-                .Subscribe(cards => UpdateCardsAsync(cards, expectedVersion).Forget())
+                .Subscribe(cards => UpdateCardsAsync(cards, expectedVersion, token).Forget())
                 .AddTo(_bindings);
 
             viewModel.CanPress
@@ -157,7 +161,7 @@ namespace Features.PlayerHandSystemImpl.View
         public IDisposable BeginExternalAnimation()
         {
             _externalAnimationCount++;
-            return new ExternalAnimationScope(this);
+            return new ExternalAnimationScope(EndExternalAnimation);
         }
 
         public UniTask WaitForExternalAnimationsAsync()
@@ -235,14 +239,17 @@ namespace Features.PlayerHandSystemImpl.View
             ApplyTint(color);
         }
 
-        private async UniTask UpdateCardsAsync(IReadOnlyList<StandardCardItemViewModel> cards, int expectedVersion)
+        private async UniTask UpdateCardsAsync(
+            IReadOnlyList<StandardCardItemViewModel> cards,
+            int expectedVersion,
+            CancellationToken token)
         {
-            if (expectedVersion != _bindingVersion)
+            if (expectedVersion != _bindingVersion || token.IsCancellationRequested)
             {
                 return;
             }
 
-            if (_cards == null || _cards.Length == 0 || _assetService == null || _viewModel == null)
+            if (_cards == null || _cards.Length == 0 || _cardSpriteResolver == null || _viewModel == null)
             {
                 return;
             }
@@ -280,8 +287,8 @@ namespace Features.PlayerHandSystemImpl.View
                     continue;
                 }
 
-                var handle = await LoadSpriteAsync(rank, suits[index], expectedVersion);
-                if (expectedVersion != _bindingVersion)
+                var handle = await LoadSpriteAsync(rank, suits[index], expectedVersion, token);
+                if (expectedVersion != _bindingVersion || token.IsCancellationRequested)
                 {
                     handle?.Dispose();
                     return;
@@ -313,26 +320,32 @@ namespace Features.PlayerHandSystemImpl.View
 
             CacheCardPositions();
             ApplyTint(_button != null && _button.interactable ? Color.white : DisabledTint);
+
+            if (_deferredReceiveBatches.Count > 0)
+            {
+                ProcessDeferredReceivesAsync(expectedVersion).Forget();
+            }
         }
 
-        private async UniTask<ManagedAsset<Sprite>> LoadSpriteAsync(string rank, string suit, int expectedVersion)
+        private async UniTask<ManagedAsset<Sprite>> LoadSpriteAsync(
+            string rank,
+            string suit,
+            int expectedVersion,
+            CancellationToken token)
         {
-            if (_assetService == null || expectedVersion != _bindingVersion)
+            if (_cardSpriteResolver == null || expectedVersion != _bindingVersion || token.IsCancellationRequested)
             {
                 return null;
             }
 
-            var spriteId = string.Format(SpriteIdFormat, rank, suit);
-            try
+            var handle = await _cardSpriteResolver.ResolveStandardCardAsync(rank, suit);
+            if (token.IsCancellationRequested)
             {
-                return await _assetService.Get<Sprite>(spriteId);
-            }
-            catch (Exception ex)
-            {
-                Debug.unityLogger.LogWarning("PlayerHand",
-                    $"Failed to load card sprite '{spriteId}': {ex.Message}");
+                handle?.Dispose();
                 return null;
             }
+
+            return handle;
         }
 
         private void ReleaseCardSprites()
@@ -422,10 +435,14 @@ namespace Features.PlayerHandSystemImpl.View
         {
             _bindings?.Dispose();
             _bindings = null;
+            _bindingsCts?.Cancel();
+            _bindingsCts?.Dispose();
+            _bindingsCts = null;
             _viewModel = null;
             _bindingVersion++;
             _resolvedSuits.Clear();
             _pendingReceiveSuits.Clear();
+            _deferredReceiveBatches.Clear();
         }
 
         private void ResetAnimations()
@@ -463,96 +480,166 @@ namespace Features.PlayerHandSystemImpl.View
             }
         }
 
-        private UniTask EnqueueAnimation(Func<UniTask> animation)
+        private UniTask EnqueueAnimation(Func<CancellationToken, UniTask> animation)
         {
             return RunQueued(animation);
         }
 
-        private async UniTask RunQueued(Func<UniTask> animation)
+        private async UniTask RunQueued(Func<CancellationToken, UniTask> animation)
         {
-            await _animationGate.WaitAsync();
-            _isAnimationRunning = true;
+            var token = _bindingsCts?.Token ?? CancellationToken.None;
+            var lockTaken = false;
             try
             {
-                await animation();
+                await _animationGate.WaitAsync(token);
+                lockTaken = true;
+                _isAnimationRunning = true;
+                await animation(token);
+            }
+            catch (OperationCanceledException)
+            {
             }
             finally
             {
-                _isAnimationRunning = false;
-                _animationGate.Release();
-                NotifyAnimationsBecameIdleIfNeeded();
+                if (lockTaken)
+                {
+                    _isAnimationRunning = false;
+                    _animationGate.Release();
+                    NotifyAnimationsBecameIdleIfNeeded();
+                }
             }
         }
 
         private async UniTaskVoid PlayReceivedBatchAsync(RankCardsReceivedEvent payload)
         {
             var expectedVersion = _bindingVersion;
-            await EnqueueAnimation(() => PlayReceivedBatchCoreAsync(payload, expectedVersion));
+            await EnqueueAnimation(token => PlayReceivedBatchCoreAsync(payload, expectedVersion, token));
         }
 
-        private async UniTask PlayReceivedBatchCoreAsync(RankCardsReceivedEvent payload, int expectedVersion)
+        private async UniTaskVoid ProcessDeferredReceivesAsync(int expectedVersion)
         {
-            if (expectedVersion != _bindingVersion)
+            if (_deferredReceiveBatches.Count == 0)
             {
                 return;
             }
 
-            var suits = payload.Suits ?? Array.Empty<string>();
-            for (var i = 0; i < suits.Count; i++)
+            await EnqueueAnimation(token => FlushDeferredReceivesAsync(expectedVersion, token));
+        }
+
+        private async UniTask FlushDeferredReceivesAsync(int expectedVersion, CancellationToken token)
+        {
+            while (_deferredReceiveBatches.Count > 0)
             {
-                if (expectedVersion != _bindingVersion)
+                if (token.IsCancellationRequested || expectedVersion != _bindingVersion)
                 {
                     return;
                 }
 
-                var suit = NormalizeSuit(suits[i]);
-                var cardIndex = await WaitForReceivedCardIndexAsync(suit, expectedVersion);
-                if (cardIndex < 0)
+                var payload = _deferredReceiveBatches.Peek();
+                if (!TryResolveReceiveSteps(payload.Suits, out var receiveSteps))
                 {
-                    if (!string.IsNullOrWhiteSpace(suit))
-                    {
-                        _pendingReceiveSuits.Remove(suit);
-                    }
-                    continue;
+                    return;
                 }
 
-                await PlayReceiveAnimationAsync(cardIndex, payload.Source, suit);
+                _deferredReceiveBatches.Dequeue();
+                await PlayReceiveBatchAsync(payload, receiveSteps, expectedVersion, token);
             }
+        }
 
-            if (!payload.CompletedSet || _hasCompletedSetAnimation || expectedVersion != _bindingVersion)
+        private async UniTask PlayReceivedBatchCoreAsync(
+            RankCardsReceivedEvent payload,
+            int expectedVersion,
+            CancellationToken token)
+        {
+            if (token.IsCancellationRequested || expectedVersion != _bindingVersion)
             {
                 return;
             }
 
-            await PlaySetCompleteSequenceAsync();
-            if (expectedVersion == _bindingVersion)
+            if (!TryResolveReceiveSteps(payload.Suits, out var receiveSteps))
+            {
+                _deferredReceiveBatches.Enqueue(CloneReceivePayload(payload));
+                return;
+            }
+
+            await PlayReceiveBatchAsync(payload, receiveSteps, expectedVersion, token);
+        }
+
+        private async UniTask PlayReceiveBatchAsync(
+            RankCardsReceivedEvent payload,
+            IReadOnlyList<(int Index, string Suit)> receiveSteps,
+            int expectedVersion,
+            CancellationToken token)
+        {
+            if (token.IsCancellationRequested || expectedVersion != _bindingVersion)
+            {
+                return;
+            }
+
+            for (var i = 0; i < receiveSteps.Count; i++)
+            {
+                if (token.IsCancellationRequested || expectedVersion != _bindingVersion)
+                {
+                    return;
+                }
+
+                var step = receiveSteps[i];
+                await PlayReceiveAnimationAsync(step.Index, payload.Source, step.Suit, token);
+            }
+
+            if (!payload.CompletedSet || _hasCompletedSetAnimation || token.IsCancellationRequested || expectedVersion != _bindingVersion)
+            {
+                return;
+            }
+
+            await PlaySetCompleteSequenceAsync(token);
+            if (!token.IsCancellationRequested && expectedVersion == _bindingVersion)
             {
                 _hasCompletedSetAnimation = true;
                 SetCompletionAnimationFinished?.Invoke(this);
             }
         }
 
-        private async UniTask<int> WaitForReceivedCardIndexAsync(string suit, int expectedVersion)
+        private bool TryResolveReceiveSteps(
+            IReadOnlyList<string> suits,
+            out List<(int Index, string Suit)> receiveSteps)
         {
-            var normalizedSuit = NormalizeSuit(suit);
-            var elapsed = 0f;
-            while (elapsed < ReceiveResolveTimeoutSeconds)
+            receiveSteps = new List<(int Index, string Suit)>();
+            if (suits == null || suits.Count == 0)
             {
-                if (expectedVersion != _bindingVersion)
-                {
-                    return -1;
-                }
-
-                if (TryGetReadyCardIndex(normalizedSuit, out var index))
-                {
-                    return index;
-                }
-
-                await UniTask.Yield(PlayerLoopTiming.Update);
-                elapsed += Mathf.Max(Time.unscaledDeltaTime, 0.01f);
+                return true;
             }
 
-            return TryGetReadyCardIndex(normalizedSuit, out var fallback) ? fallback : -1;
+            for (var i = 0; i < suits.Count; i++)
+            {
+                var normalizedSuit = NormalizeSuit(suits[i]);
+                if (string.IsNullOrWhiteSpace(normalizedSuit))
+                {
+                    continue;
+                }
+
+                if (!TryGetReadyCardIndex(normalizedSuit, out var index))
+                {
+                    return false;
+                }
+
+                receiveSteps.Add((index, normalizedSuit));
+            }
+
+            return true;
+        }
+
+        private static RankCardsReceivedEvent CloneReceivePayload(RankCardsReceivedEvent payload)
+        {
+            var suits = payload.Suits != null
+                ? payload.Suits.ToArray()
+                : Array.Empty<string>();
+
+            return new RankCardsReceivedEvent(
+                payload.Source,
+                suits,
+                payload.EventSeq,
+                payload.CompletedSet);
         }
 
         private bool TryGetReadyCardIndex(string normalizedSuit, out int index)
@@ -633,16 +720,16 @@ namespace Features.PlayerHandSystemImpl.View
             return card != null && card.gameObject.activeSelf && card.sprite != null;
         }
 
-        private async UniTask PlayReceiveAnimationAsync(int cardIndex, string source, string suit)
+        private async UniTask PlayReceiveAnimationAsync(int cardIndex, string source, string suit, CancellationToken token)
         {
-            if (!IsCardReady(cardIndex))
+            if (token.IsCancellationRequested || !IsCardReady(cardIndex))
             {
                 return;
             }
 
             var card = _cards[cardIndex];
             var rect = card.rectTransform;
-            await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate);
+            await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate, token);
             CacheCardPositions();
 
             var basePos = _cardBasePositions.TryGetValue(card, out var cached) ? cached : rect.anchoredPosition;
@@ -665,15 +752,15 @@ namespace Features.PlayerHandSystemImpl.View
             var sequence = DOTween.Sequence().SetUpdate(true);
             if (receiveOrigin != null)
             {
-                sequence.Append(rect.DOMove(targetWorld, ReceiveDuration).SetEase(Ease.OutQuad));
+                sequence.Append(rect.DOMove(targetWorld, _receiveDuration).SetEase(Ease.OutQuad));
             }
             else
             {
-                sequence.Append(rect.DOAnchorPos(basePos, ReceiveDuration).SetEase(Ease.OutQuad));
+                sequence.Append(rect.DOAnchorPos(basePos, _receiveDuration).SetEase(Ease.OutQuad));
             }
 
-            sequence.Join(card.DOFade(1f, ReceiveDuration));
-            await AwaitTweenAsync(sequence, ReceiveDuration + TweenTimeoutBuffer);
+            sequence.Join(card.DOFade(1f, _receiveDuration));
+            await TweenAwaiter.AwaitAsync(sequence, _receiveDuration + _tweenTimeoutBuffer, token);
             rect.anchoredPosition = basePos;
             SetImageAlpha(card, 1f);
             if (!string.IsNullOrWhiteSpace(suit))
@@ -692,17 +779,17 @@ namespace Features.PlayerHandSystemImpl.View
             return _opponentReceiveOriginProvider?.Invoke();
         }
 
-        private static Vector2 ResolveReceiveOffset(string source)
+        private Vector2 ResolveReceiveOffset(string source)
         {
             if (string.Equals(source, "deck", StringComparison.OrdinalIgnoreCase))
             {
-                return new Vector2(0f, ReceiveOffsetYFromDeck);
+                return new Vector2(0f, _receiveOffsetYFromDeck);
             }
 
-            return new Vector2(ReceiveOffsetXFromOpponent, 0f);
+            return new Vector2(_receiveOffsetXFromOpponent, 0f);
         }
 
-        private async UniTask PlaySetCompleteSequenceAsync()
+        private async UniTask PlaySetCompleteSequenceAsync(CancellationToken token)
         {
             if (_canvasGroup == null)
             {
@@ -710,15 +797,16 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             var sequence = DOTween.Sequence().SetUpdate(true);
-            sequence.Append(_canvasGroup.DOFade(0.3f, SetCompleteFlashDuration));
-            sequence.Append(_canvasGroup.DOFade(1f, SetCompleteFlashDuration));
-            sequence.Append(_canvasGroup.DOFade(0f, SetCompleteFadeDuration));
-            await AwaitTweenAsync(
+            sequence.Append(_canvasGroup.DOFade(0.3f, _setCompleteFlashDuration));
+            sequence.Append(_canvasGroup.DOFade(1f, _setCompleteFlashDuration));
+            sequence.Append(_canvasGroup.DOFade(0f, _setCompleteFadeDuration));
+            await TweenAwaiter.AwaitAsync(
                 sequence,
-                (SetCompleteFlashDuration * 2f) + SetCompleteFadeDuration + TweenTimeoutBuffer);
+                (_setCompleteFlashDuration * 2f) + _setCompleteFadeDuration + _tweenTimeoutBuffer,
+                token);
         }
 
-        private async UniTask PlayTransferRemovalSequenceAsync()
+        private async UniTask PlayTransferRemovalSequenceAsync(CancellationToken token)
         {
             if (_canvasGroup == null)
             {
@@ -728,20 +816,20 @@ namespace Features.PlayerHandSystemImpl.View
             if (_rectTransform != null)
             {
                 var shake = _rectTransform
-                    .DOShakeAnchorPos(TransferShakeDuration, TransferShakeStrength, 10, 0f)
+                    .DOShakeAnchorPos(_transferShakeDuration, _transferShakeStrength, 10, 0f)
                     .SetUpdate(true);
-                await AwaitTweenAsync(shake, TransferShakeDuration + TweenTimeoutBuffer);
+                await TweenAwaiter.AwaitAsync(shake, _transferShakeDuration + _tweenTimeoutBuffer, token);
             }
 
             var sequence = DOTween.Sequence().SetUpdate(true);
-            sequence.Append(_canvasGroup.DOFade(0f, TransferFadeDuration));
+            sequence.Append(_canvasGroup.DOFade(0f, _transferFadeDuration));
             if (_rectTransform != null)
             {
                 var start = _rectTransform.anchoredPosition;
-                sequence.Join(_rectTransform.DOAnchorPos(start + new Vector2(0f, ReceiveOffsetY), TransferFadeDuration));
+                sequence.Join(_rectTransform.DOAnchorPos(start + new Vector2(0f, _receiveOffsetY), _transferFadeDuration));
             }
 
-            await AwaitTweenAsync(sequence, TransferFadeDuration + TweenTimeoutBuffer);
+            await TweenAwaiter.AwaitAsync(sequence, _transferFadeDuration + _tweenTimeoutBuffer, token);
         }
 
         private static void SetImageAlpha(Image image, float alpha)
@@ -765,44 +853,6 @@ namespace Features.PlayerHandSystemImpl.View
             return string.IsNullOrWhiteSpace(suit) ? string.Empty : suit.Trim().ToLowerInvariant();
         }
 
-        private static async UniTask AwaitTweenAsync(Tween tween, float timeoutSeconds)
-        {
-            if (tween == null)
-            {
-                return;
-            }
-
-            tween.SetUpdate(true);
-            var completionTcs = new UniTaskCompletionSource();
-            var completionSignaled = false;
-            void SignalCompletion()
-            {
-                if (completionSignaled)
-                {
-                    return;
-                }
-
-                completionSignaled = true;
-                completionTcs.TrySetResult();
-            }
-
-            tween.OnComplete(SignalCompletion);
-            tween.OnKill(SignalCompletion);
-
-            if (!tween.IsActive() || tween.IsComplete())
-            {
-                SignalCompletion();
-            }
-
-            var safeTimeout = Mathf.Max(0.1f, timeoutSeconds);
-            var timeoutTask = UniTask.Delay(TimeSpan.FromSeconds(safeTimeout), DelayType.UnscaledDeltaTime);
-            var winner = await UniTask.WhenAny(completionTcs.Task, timeoutTask);
-            if (winner != 0 && tween.IsActive())
-            {
-                tween.Kill(false);
-            }
-        }
-
         private void EndExternalAnimation()
         {
             if (_externalAnimationCount <= 0)
@@ -819,27 +869,6 @@ namespace Features.PlayerHandSystemImpl.View
             if (!HasActiveAnimations)
             {
                 AnimationsBecameIdle?.Invoke(this);
-            }
-        }
-
-        private sealed class ExternalAnimationScope : IDisposable
-        {
-            private RankStackView _owner;
-
-            public ExternalAnimationScope(RankStackView owner)
-            {
-                _owner = owner;
-            }
-
-            public void Dispose()
-            {
-                if (_owner == null)
-                {
-                    return;
-                }
-
-                _owner.EndExternalAnimation();
-                _owner = null;
             }
         }
     }

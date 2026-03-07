@@ -15,12 +15,8 @@ namespace Modules.PlayerHand.Services
     internal class SignalRPlayerHandClient : IPlayerHandEventSource, ILobbyConnectionHandler, IDisposable
     {
         private readonly ISharedGameHubConnection _sharedHubConnection;
-        private readonly Subject<PlayerHandSnapshotEvent> _standardSnapshot = new();
-        private readonly Subject<PlayerHandStandardCardEvent> _standardCardAdded = new();
-        private readonly Subject<PlayerHandStandardCardEvent> _standardCardRemoved = new();
-        private readonly Subject<PlayerHandBonusCardEvent> _bonusCardAdded = new();
-        private readonly Subject<PlayerHandBonusCardEvent> _bonusCardRemoved = new();
-        private readonly Subject<CardsReceivedEvent> _cardsReceived = new();
+        private readonly Subject<PlayerHandSnapshotEvent> _handSnapshot = new();
+        private readonly Subject<PlayerHandDeltaEvent> _handDelta = new();
         private readonly List<IDisposable> _handlerSubscriptions = new();
 
         public SignalRPlayerHandClient(ISharedGameHubConnection sharedHubConnection)
@@ -28,12 +24,8 @@ namespace Modules.PlayerHand.Services
             _sharedHubConnection = sharedHubConnection ?? throw new ArgumentNullException(nameof(sharedHubConnection));
         }
 
-        public Observable<PlayerHandSnapshotEvent> StandardSnapshot => _standardSnapshot;
-        public Observable<PlayerHandStandardCardEvent> StandardCardAdded => _standardCardAdded;
-        public Observable<PlayerHandStandardCardEvent> StandardCardRemoved => _standardCardRemoved;
-        public Observable<PlayerHandBonusCardEvent> BonusCardAdded => _bonusCardAdded;
-        public Observable<PlayerHandBonusCardEvent> BonusCardRemoved => _bonusCardRemoved;
-        public Observable<CardsReceivedEvent> CardsReceived => _cardsReceived;
+        public Observable<PlayerHandSnapshotEvent> HandSnapshot => _handSnapshot;
+        public Observable<PlayerHandDeltaEvent> HandDelta => _handDelta;
 
         public UniTask ConnectAsync(LobbySession session, CancellationToken cancellationToken = default)
         {
@@ -63,128 +55,51 @@ namespace Modules.PlayerHand.Services
         private void RegisterHandlers()
         {
             ClearHandlers();
-            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<PlayerHandUpdatedDto>("PlayerHandUpdated", payload =>
-            {
-                var mapped = new List<StandardCardData>();
-                var cards = payload?.Cards;
-                if (cards != null)
-                {
-                    foreach (var dto in cards)
-                    {
-                        if (string.IsNullOrWhiteSpace(dto?.Rank) || string.IsNullOrWhiteSpace(dto?.Suit))
-                        {
-                            continue;
-                        }
 
-                        mapped.Add(new StandardCardData(dto.Rank, dto.Suit));
-                    }
-                }
-
-                var playerId = payload?.PlayerId ?? string.Empty;
-                var revision = payload?.Revision ?? 0L;
-                _standardSnapshot.OnNext(new PlayerHandSnapshotEvent(playerId, mapped, revision));
-            }));
-
-            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<BonusCardChangedDto>("BonusCardAddedToHand", payload =>
+            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<HandSnapshotDto>("HandSnapshot", payload =>
             {
                 if (payload == null)
                 {
                     return;
                 }
 
-                _bonusCardAdded.OnNext(new PlayerHandBonusCardEvent(
-                    payload.PlayerId,
-                    new BonusCardData(payload.BonusType)));
+                var standardCards = new List<StandardCardData>();
+                var bonusCards = new List<BonusCardData>();
+                MapCards(payload.Cards, standardCards, bonusCards);
+
+                _handSnapshot.OnNext(new PlayerHandSnapshotEvent(
+                    payload.PlayerId ?? string.Empty,
+                    standardCards,
+                    bonusCards,
+                    payload.Revision));
             }));
 
-            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<BonusCardChangedDto>("BonusCardRemovedFromHand", payload =>
+            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<HandDeltaDto>("HandDelta", payload =>
             {
                 if (payload == null)
                 {
                     return;
                 }
 
-                _bonusCardRemoved.OnNext(new PlayerHandBonusCardEvent(
-                    payload.PlayerId,
-                    new BonusCardData(payload.BonusType)));
-            }));
+                var addedStandardCards = new List<StandardCardData>();
+                var addedBonusCards = new List<BonusCardData>();
+                var removedStandardCards = new List<StandardCardData>();
+                var removedBonusCards = new List<BonusCardData>();
+                MapCards(payload.AddedCards, addedStandardCards, addedBonusCards);
+                MapCards(payload.RemovedCards, removedStandardCards, removedBonusCards);
 
-            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<CardsTransferredDto>("CardsTransferred", payload =>
-            {
-                if (payload == null)
-                {
-                    return;
-                }
-
-                if (string.Equals(payload.Destination, "chest", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Chest completion is handled via snapshots + completedSet metadata on CardsReceived.
-                    // Per-card removals here create races with receive animation of the 4th card.
-                    return;
-                }
-
-                var playerId = payload.PlayerId ?? string.Empty;
-                var eventSeq = payload.EventSeq;
-                var completedSet = payload.CompletedSet;
-                var completedSetRank = payload.CompletedSetRank ?? string.Empty;
-                var cards = payload.Cards ?? Array.Empty<TransferCardDto>();
-                foreach (var card in cards)
-                {
-                    if (string.IsNullOrWhiteSpace(card?.Rank) || string.IsNullOrWhiteSpace(card?.Suit))
-                    {
-                        continue;
-                    }
-
-                    _standardCardRemoved.OnNext(new PlayerHandStandardCardEvent(
-                        playerId,
-                        new StandardCardData(card.Rank, card.Suit),
-                        eventSeq,
-                        completedSet,
-                        completedSetRank));
-                }
-            }));
-
-            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<CardsReceivedDto>("CardsReceived", payload =>
-            {
-                if (payload == null)
-                {
-                    return;
-                }
-
-                var playerId = payload.PlayerId ?? string.Empty;
-                var eventSeq = payload.EventSeq;
-                var completedSet = payload.CompletedSet;
-                var completedSetRank = payload.CompletedSetRank ?? string.Empty;
-                var standard = new List<StandardCardData>();
-                var bonus = new List<BonusCardData>();
-                if (payload.Cards != null)
-                {
-                    foreach (var card in payload.Cards)
-                    {
-                        if (!string.IsNullOrWhiteSpace(card?.BonusType))
-                        {
-                            bonus.Add(new BonusCardData(card.BonusType));
-                        }
-                        else if (!string.IsNullOrWhiteSpace(card?.Rank) && !string.IsNullOrWhiteSpace(card?.Suit))
-                        {
-                            var standardCard = new StandardCardData(card.Rank, card.Suit);
-                            standard.Add(standardCard);
-                            _standardCardAdded.OnNext(new PlayerHandStandardCardEvent(
-                                playerId,
-                                standardCard,
-                                eventSeq));
-                        }
-                    }
-                }
-
-                _cardsReceived.OnNext(new CardsReceivedEvent(
-                    playerId,
+                _handDelta.OnNext(new PlayerHandDeltaEvent(
+                    payload.ActionId ?? string.Empty,
+                    payload.PlayerId ?? string.Empty,
                     payload.Source ?? string.Empty,
-                    standard,
-                    bonus,
-                    eventSeq,
-                    completedSet,
-                    completedSetRank));
+                    payload.Destination ?? string.Empty,
+                    addedStandardCards,
+                    addedBonusCards,
+                    removedStandardCards,
+                    removedBonusCards,
+                    payload.EventSeq,
+                    payload.CompletedSet,
+                    payload.CompletedSetRank ?? string.Empty));
             }));
         }
 
@@ -198,40 +113,46 @@ namespace Modules.PlayerHand.Services
             _handlerSubscriptions.Clear();
         }
 
-        private sealed class HandCardDto
+        private static void MapCards(
+            IReadOnlyList<TransferCardDto> cards,
+            ICollection<StandardCardData> standardCards,
+            ICollection<BonusCardData> bonusCards)
         {
-            public string Rank { get; set; }
-            public string Suit { get; set; }
+            if (cards == null)
+            {
+                return;
+            }
+
+            foreach (var card in cards)
+            {
+                if (!string.IsNullOrWhiteSpace(card?.BonusType))
+                {
+                    bonusCards.Add(new BonusCardData(card.BonusType));
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(card?.Rank) && !string.IsNullOrWhiteSpace(card?.Suit))
+                {
+                    standardCards.Add(new StandardCardData(card.Rank, card.Suit));
+                }
+            }
         }
 
-        private sealed class PlayerHandUpdatedDto
+        private sealed class HandSnapshotDto
         {
             public string PlayerId { get; set; }
-            public HandCardDto[] Cards { get; set; }
+            public TransferCardDto[] Cards { get; set; }
             public long Revision { get; set; }
         }
 
-        private sealed class BonusCardChangedDto
+        private sealed class HandDeltaDto
         {
-            public string PlayerId { get; set; }
-            public string BonusType { get; set; }
-        }
-
-        private sealed class CardsReceivedDto
-        {
+            public string ActionId { get; set; }
             public string PlayerId { get; set; }
             public string Source { get; set; }
-            public TransferCardDto[] Cards { get; set; }
-            public long EventSeq { get; set; }
-            public bool CompletedSet { get; set; }
-            public string CompletedSetRank { get; set; }
-        }
-
-        private sealed class CardsTransferredDto
-        {
-            public string PlayerId { get; set; }
             public string Destination { get; set; }
-            public TransferCardDto[] Cards { get; set; }
+            public TransferCardDto[] AddedCards { get; set; }
+            public TransferCardDto[] RemovedCards { get; set; }
             public long EventSeq { get; set; }
             public bool CompletedSet { get; set; }
             public string CompletedSetRank { get; set; }

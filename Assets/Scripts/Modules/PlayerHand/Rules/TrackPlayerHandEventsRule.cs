@@ -30,62 +30,17 @@ namespace Modules.PlayerHand.Rules
 
         public void Initialize()
         {
-            _client.StandardSnapshot.Subscribe(evt =>
+            _client.HandSnapshot.Subscribe(evt =>
                 {
                     var playerId = ResolvePlayerId(evt.PlayerId);
-                    _internalService.ApplyStandardSnapshot(playerId, evt.Cards, evt.Revision);
+                    _internalService.ApplySnapshot(playerId, evt.StandardCards, evt.BonusCards, evt.Revision);
                 })
                 .AddTo(_subscriptions);
 
-            _client.StandardCardAdded.Subscribe(evt =>
+            _client.HandDelta.Subscribe(evt =>
                 {
                     var playerId = ResolvePlayerId(evt.PlayerId);
-                    _internalService.AddStandardCard(playerId, evt.Card, evt.EventSeq);
-                })
-                .AddTo(_subscriptions);
-
-            _client.StandardCardRemoved.Subscribe(evt =>
-                {
-                    var playerId = ResolvePlayerId(evt.PlayerId);
-                    _internalService.RemoveStandardCard(
-                        playerId,
-                        evt.Card,
-                        evt.EventSeq,
-                        evt.CompletedSet ? evt.CompletedSetRank : string.Empty);
-                })
-                .AddTo(_subscriptions);
-
-            _client.BonusCardAdded.Subscribe(evt =>
-                {
-                    var playerId = ResolvePlayerId(evt.PlayerId);
-                    _internalService.AddBonusCard(playerId, evt.Card);
-                })
-                .AddTo(_subscriptions);
-
-            _client.BonusCardRemoved.Subscribe(evt =>
-                {
-                    var playerId = ResolvePlayerId(evt.PlayerId);
-                    _internalService.NotifyBonusUsed(playerId, evt.Card);
-                    _internalService.RemoveBonusCard(playerId, evt.Card);
-                })
-                .AddTo(_subscriptions);
-
-            _client.CardsReceived.Subscribe(evt =>
-                {
-                    var playerId = ResolvePlayerId(evt.PlayerId);
-                    _internalService.NotifyCardsReceived(
-                        playerId,
-                        evt.Source,
-                        evt.StandardCards,
-                        evt.BonusCards,
-                        evt.EventSeq,
-                        evt.CompletedSet,
-                        evt.CompletedSetRank);
-
-                    if (evt.CompletedSet && !string.IsNullOrWhiteSpace(evt.CompletedSetRank))
-                    {
-                        _internalService.ApplySetCompleted(playerId, evt.CompletedSetRank, evt.EventSeq);
-                    }
+                    _internalService.ApplyDelta(evt, playerId);
                 })
                 .AddTo(_subscriptions);
 

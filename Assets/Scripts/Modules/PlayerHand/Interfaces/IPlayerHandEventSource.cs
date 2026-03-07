@@ -5,12 +5,8 @@ namespace Modules.PlayerHand.Interfaces
 {
     public interface IPlayerHandEventSource
     {
-        Observable<PlayerHandSnapshotEvent> StandardSnapshot { get; }
-        Observable<PlayerHandStandardCardEvent> StandardCardAdded { get; }
-        Observable<PlayerHandStandardCardEvent> StandardCardRemoved { get; }
-        Observable<PlayerHandBonusCardEvent> BonusCardAdded { get; }
-        Observable<PlayerHandBonusCardEvent> BonusCardRemoved { get; }
-        Observable<CardsReceivedEvent> CardsReceived { get; }
+        Observable<PlayerHandSnapshotEvent> HandSnapshot { get; }
+        Observable<PlayerHandDeltaEvent> HandDelta { get; }
     }
 }
 

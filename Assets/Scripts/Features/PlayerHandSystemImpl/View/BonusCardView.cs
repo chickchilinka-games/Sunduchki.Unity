@@ -1,8 +1,9 @@
 using System;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
-using Features.PlayerHandSystemImpl.ViewModel;
 using Features.BonusSystemImpl.View;
+using Features.PlayerHandSystemImpl.Presentation.ViewModel;
+using Features.PlayerHandSystemImpl.Utils;
 using Features.WindowSystemImpl.Templates;
 using ICVR.Window;
 using Modules.AssetSystem.Models;
@@ -17,9 +18,6 @@ namespace Features.PlayerHandSystemImpl.View
     public class BonusCardView : MonoBehaviour
     {
         private const string BonusSpriteFormat = "Art/Cards/Bonus/bonus_{0}";
-        private const float ReceiveOffsetY = -32f;
-        private const float ReceiveDuration = 0.28f;
-        private const float TweenTimeoutPadding = 0.35f;
 
         [SerializeField] private Image _icon;
         [SerializeField] private RectTransform _visualRoot;
@@ -27,6 +25,10 @@ namespace Features.PlayerHandSystemImpl.View
         [SerializeField] private Button _button;
         [SerializeField] private Button _infoButton;
         [SerializeField] private CanvasGroup _canvasGroup;
+        [Header("Animation")]
+        [SerializeField] private float _receiveOffsetY = -32f;
+        [SerializeField, Min(0.01f)] private float _receiveDuration = 0.28f;
+        [SerializeField, Min(0.01f)] private float _tweenTimeoutPadding = 0.35f;
 
         private AssetService _assetService;
         private WindowSystem _windowSystem;
@@ -250,59 +252,21 @@ namespace Features.PlayerHandSystemImpl.View
             DOTween.Kill(_visualRect);
             _visualBaseAnchored = _visualRect.anchoredPosition;
             var targetWorld = _visualRect.position;
-            _visualRect.position = source.position + new Vector3(0f, ReceiveOffsetY, 0f);
+            _visualRect.position = source.position + new Vector3(0f, _receiveOffsetY, 0f);
 
             _icon.enabled = true;
 
             var sequence = DOTween.Sequence().SetUpdate(true);
-            sequence.Append(_visualRect.DOMove(targetWorld, ReceiveDuration).SetEase(Ease.OutQuad));
+            sequence.Append(_visualRect.DOMove(targetWorld, _receiveDuration).SetEase(Ease.OutQuad));
             if (_visualCanvasGroup != null)
             {
-                sequence.Join(_visualCanvasGroup.DOFade(baseAlpha, ReceiveDuration));
+                sequence.Join(_visualCanvasGroup.DOFade(baseAlpha, _receiveDuration));
             }
-            await AwaitTweenAsync(sequence, ReceiveDuration + TweenTimeoutPadding);
+            await TweenAwaiter.AwaitAsync(sequence, _receiveDuration + _tweenTimeoutPadding);
             _visualRect.anchoredPosition = _visualBaseAnchored;
             if (_visualCanvasGroup != null)
             {
                 _visualCanvasGroup.alpha = baseAlpha;
-            }
-        }
-
-        private static async UniTask AwaitTweenAsync(Tween tween, float timeoutSeconds)
-        {
-            if (tween == null)
-            {
-                return;
-            }
-
-            tween.SetUpdate(true);
-            var completionTcs = new UniTaskCompletionSource();
-            var completionSignaled = false;
-            void SignalCompletion()
-            {
-                if (completionSignaled)
-                {
-                    return;
-                }
-
-                completionSignaled = true;
-                completionTcs.TrySetResult();
-            }
-
-            tween.OnComplete(SignalCompletion);
-            tween.OnKill(SignalCompletion);
-
-            if (!tween.IsActive() || tween.IsComplete())
-            {
-                SignalCompletion();
-            }
-
-            var safeTimeout = Mathf.Max(0.1f, timeoutSeconds);
-            var timeoutTask = UniTask.Delay(TimeSpan.FromSeconds(safeTimeout), DelayType.UnscaledDeltaTime);
-            var winner = await UniTask.WhenAny(completionTcs.Task, timeoutTask);
-            if (winner != 0 && tween.IsActive())
-            {
-                tween.Kill(false);
             }
         }
 
