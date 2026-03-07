@@ -10,19 +10,22 @@ namespace Modules.Lobby.Data
         public IReadOnlyList<LobbyPlayerInfo> Players { get; }
         public int DeckCount { get; }
         public int TotalCards { get; }
+        public bool Started { get; }
 
         public MatchmakingResult(
             string gameId,
             string playerId,
             IReadOnlyList<LobbyPlayerInfo> players,
             int deckCount,
-            int totalCards)
+            int totalCards,
+            bool started)
         {
             GameId = gameId;
             PlayerId = playerId;
             Players = players ?? Array.Empty<LobbyPlayerInfo>();
             DeckCount = deckCount;
             TotalCards = totalCards;
+            Started = started;
         }
     }
 }

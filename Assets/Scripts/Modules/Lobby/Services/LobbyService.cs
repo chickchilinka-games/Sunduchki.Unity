@@ -17,17 +17,26 @@ namespace Modules.Lobby.Services
         private readonly ILobbySignalRClient _signalRClient;
         private readonly ITokenProvider _tokenProvider;
         private readonly LobbyStateContext _state;
+        private readonly IReadOnlyList<ILobbyConnectionHandler> _connectionHandlers;
+        private bool _handlersConnected;
+        private string _connectedGameId = string.Empty;
+        private string _connectedPlayerId = string.Empty;
 
         internal LobbyService(
             ILobbyApiClient apiClient,
             ILobbySignalRClient signalRClient,
             ITokenProvider tokenProvider,
-            LobbyStateContext state)
+            LobbyStateContext state,
+            List<ILobbyConnectionHandler> connectionHandlers)
         {
             _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
             _signalRClient = signalRClient ?? throw new ArgumentNullException(nameof(signalRClient));
             _tokenProvider = tokenProvider;
             _state = state ?? throw new ArgumentNullException(nameof(state));
+            _connectionHandlers = (connectionHandlers ?? new List<ILobbyConnectionHandler>())
+                .OrderBy(GetHandlerPriority)
+                .ThenBy(handler => handler?.GetType().FullName, StringComparer.Ordinal)
+                .ToArray();
         }
 
         public ReadOnlyReactiveProperty<LobbyState> State => _state.State;
@@ -36,6 +45,7 @@ namespace Modules.Lobby.Services
         public Observable<LobbyGameStartedPayload> GameStarted => _state.GameStarted;
         public Observable<LobbyGameEndedPayload> GameEnded => _state.GameEnded;
         public Observable<LobbyChestUpdatedPayload> ChestUpdated => _state.ChestUpdated;
+        public bool IsConnected => _state.IsConnected;
 
 
         public LobbyPlayerInfo GetLocalPlayer()
@@ -112,7 +122,7 @@ namespace Modules.Lobby.Services
             try
             {
                 var result = await _apiClient.JoinGameAsync(gameId, options, cancellationToken);
-                ApplyMatchData(gameId, result.PlayerId, result.Players, result.DeckCount, result.TotalCards);
+                ApplyMatchData(gameId, result.PlayerId, result.Players, result.DeckCount, result.TotalCards, result.Started);
                 _state.MutateState(state => state.WithStatus(LobbyStatus.Idle).ClearError());
                 return result;
             }
@@ -129,7 +139,7 @@ namespace Modules.Lobby.Services
             try
             {
                 var result = await _apiClient.SearchMatchAsync(options, cancellationToken);
-                ApplyMatchData(result.GameId, result.PlayerId, result.Players, result.DeckCount, result.TotalCards);
+                ApplyMatchData(result.GameId, result.PlayerId, result.Players, result.DeckCount, result.TotalCards, result.Started);
                 _state.MutateState(state => state.WithStatus(LobbyStatus.Idle).ClearError());
                 return result;
             }
@@ -154,23 +164,40 @@ namespace Modules.Lobby.Services
 
             if (_state.IsConnected)
             {
-                return;
+                if (IsConnectedToCurrentSession())
+                {
+                    return;
+                }
+
+                Debug.LogWarning(
+                    $"[Lobby] Session changed while connected. Reconnecting transport. " +
+                    $"oldGame={_connectedGameId}, newGame={_state.Data.GameId}, " +
+                    $"oldPlayer={_connectedPlayerId}, newPlayer={_state.Data.PlayerId}");
+                await DisconnectTransportAsync(cancellationToken, resetState: false);
             }
 
             _state.MutateState(state => state.WithStatus(LobbyStatus.Connecting).ClearError());
             try
             {
                 await _signalRClient.ConnectAsync(options, _state, cancellationToken);
+                await ConnectModuleHandlersAsync(cancellationToken);
                 await _signalRClient.JoinGameAsync(
                     new LobbySignalRJoinPayload(_state.Data.GameId, _state.Data.PlayerId),
                     cancellationToken);
 
                 _state.SetConnected(true);
+                _connectedGameId = _state.Data.GameId ?? string.Empty;
+                _connectedPlayerId = _state.Data.PlayerId ?? string.Empty;
                 _state.MutateState(state =>
                 {
-                    if (state.Started || state.Status == LobbyStatus.Ended)
+                    if (state.Status == LobbyStatus.Ended)
                     {
                         return state;
+                    }
+
+                    if (state.Started)
+                    {
+                        return state.WithStatus(LobbyStatus.Started).ClearError();
                     }
 
                     return state.WithStatus(LobbyStatus.Waiting).ClearError();
@@ -179,6 +206,8 @@ namespace Modules.Lobby.Services
             }
             catch (Exception ex)
             {
+                await DisconnectTransportAsync(cancellationToken, resetState: false);
+
                 HandleError("connect", ex, LobbyStatus.Idle);
                 throw;
             }
@@ -212,33 +241,52 @@ namespace Modules.Lobby.Services
 
         public async UniTask DisconnectAsync(CancellationToken cancellationToken = default)
         {
-            if (!_state.IsConnected)
+            if (!_state.IsConnected &&
+                !_handlersConnected &&
+                string.IsNullOrWhiteSpace(_connectedGameId) &&
+                string.IsNullOrWhiteSpace(_connectedPlayerId))
             {
                 return;
             }
 
+            await DisconnectTransportAsync(cancellationToken, resetState: true);
+        }
+
+        private async UniTask DisconnectTransportAsync(CancellationToken cancellationToken, bool resetState)
+        {
             try
             {
-                await LeaveGameAsync(cancellationToken);
+                await LeaveConnectedSessionAsync(cancellationToken);
+                await DisconnectModuleHandlersAsync();
                 await _signalRClient.DisconnectAsync(cancellationToken);
             }
             finally
             {
                 _state.SetConnected(false);
-                _state.MutateState(state => state.WithStatus(LobbyStatus.Idle)
-                    .WithStarted(false)
-                    .With(builder =>
-                    {
-                        builder.Result = null;
-                        builder.GameEndedReason = null;
-                    }));
+                _connectedGameId = string.Empty;
+                _connectedPlayerId = string.Empty;
+
+                if (resetState)
+                {
+                    _state.MutateState(state => state.WithStatus(LobbyStatus.Idle)
+                        .WithStarted(false)
+                        .With(builder =>
+                        {
+                            builder.Result = null;
+                            builder.GameEndedReason = null;
+                        }));
+                }
             }
         }
 
-        private async UniTask LeaveGameAsync(CancellationToken cancellationToken)
+        private async UniTask LeaveConnectedSessionAsync(CancellationToken cancellationToken)
         {
-            var gameId = _state.Data.GameId;
-            var playerId = _state.Data.PlayerId;
+            var gameId = string.IsNullOrWhiteSpace(_connectedGameId)
+                ? _state.Data.GameId
+                : _connectedGameId;
+            var playerId = string.IsNullOrWhiteSpace(_connectedPlayerId)
+                ? _state.Data.PlayerId
+                : _connectedPlayerId;
             if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(playerId))
             {
                 return;
@@ -254,6 +302,13 @@ namespace Modules.Lobby.Services
             {
                 Debug.LogWarning($"[Lobby] LeaveGame failed: {ex.Message}");
             }
+        }
+
+        private bool IsConnectedToCurrentSession()
+        {
+            return _state.IsConnected &&
+                   string.Equals(_connectedGameId, _state.Data.GameId, StringComparison.Ordinal) &&
+                   string.Equals(_connectedPlayerId, _state.Data.PlayerId, StringComparison.Ordinal);
         }
 
         public void SetHost(bool isHost)
@@ -279,7 +334,13 @@ namespace Modules.Lobby.Services
             }
         }
 
-        private void ApplyMatchData(string gameId, string playerId, IReadOnlyList<LobbyPlayerInfo> players, int deckCount, int totalCards)
+        private void ApplyMatchData(
+            string gameId,
+            string playerId,
+            IReadOnlyList<LobbyPlayerInfo> players,
+            int deckCount,
+            int totalCards,
+            bool started)
         {
             UpdateData(new LobbyData
             {
@@ -304,6 +365,87 @@ namespace Modules.Lobby.Services
             }
 
             _state.SetPlayers(roster);
+            _state.MutateState(state =>
+            {
+                var next = state.WithStarted(started);
+                if (started)
+                {
+                    next = next.WithStatus(LobbyStatus.Started);
+                }
+
+                return next;
+            });
+        }
+
+        private async UniTask ConnectModuleHandlersAsync(CancellationToken cancellationToken)
+        {
+            if (_handlersConnected)
+            {
+                return;
+            }
+
+            if (!TryGetSession(out var gameId, out var playerId))
+            {
+                Debug.LogWarning("[Lobby] Cannot connect module handlers: session is not configured.");
+                return;
+            }
+
+            var session = new LobbySession(gameId, playerId);
+            var connectedHandlers = new List<ILobbyConnectionHandler>(_connectionHandlers.Count);
+            try
+            {
+                foreach (var handler in _connectionHandlers)
+                {
+                    var handlerName = handler.GetType().Name;
+                    Debug.Log($"[Lobby] Connecting handler: {handlerName}");
+                    await handler.ConnectAsync(session, cancellationToken);
+                    connectedHandlers.Add(handler);
+                    Debug.Log($"[Lobby] Connected handler: {handlerName}");
+                }
+
+                _handlersConnected = true;
+            }
+            catch
+            {
+                for (var i = connectedHandlers.Count - 1; i >= 0; i--)
+                {
+                    await connectedHandlers[i].DisconnectAsync();
+                }
+
+                throw;
+            }
+        }
+
+        private async UniTask DisconnectModuleHandlersAsync()
+        {
+            if (!_handlersConnected)
+            {
+                return;
+            }
+
+            for (var i = _connectionHandlers.Count - 1; i >= 0; i--)
+            {
+                await _connectionHandlers[i].DisconnectAsync();
+            }
+
+            _handlersConnected = false;
+        }
+
+        private static int GetHandlerPriority(ILobbyConnectionHandler handler)
+        {
+            var typeName = handler?.GetType().Name ?? string.Empty;
+            if (typeName.IndexOf("PlayerHand", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return 0;
+            }
+
+            if (typeName.IndexOf("Deck", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                typeName.IndexOf("Turn", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return 1;
+            }
+
+            return 10;
         }
     }
 }

@@ -238,6 +238,7 @@ namespace Modules.Lobby.Model
 
         public void OnConnectionClosed(string error)
         {
+            _connected = false;
             var state = _model.CurrentState;
             if (state.Status == LobbyStatus.Ended || !state.Started)
             {

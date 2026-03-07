@@ -35,6 +35,12 @@ namespace Features.PlayerHandSystemImpl.Rules
                         return;
                     }
 
+                    if (state.Status == LobbyStatus.Started || state.Started)
+                    {
+                        Activate();
+                        return;
+                    }
+
                     if (state.Status != LobbyStatus.Started && !state.Started)
                     {
                         _context.Clear();

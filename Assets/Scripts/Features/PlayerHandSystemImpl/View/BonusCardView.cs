@@ -19,6 +19,7 @@ namespace Features.PlayerHandSystemImpl.View
         private const string BonusSpriteFormat = "Art/Cards/Bonus/bonus_{0}";
         private const float ReceiveOffsetY = -32f;
         private const float ReceiveDuration = 0.28f;
+        private const float TweenTimeoutPadding = 0.35f;
 
         [SerializeField] private Image _icon;
         [SerializeField] private RectTransform _visualRoot;
@@ -219,6 +220,17 @@ namespace Features.PlayerHandSystemImpl.View
                 return;
             }
 
+            if (_visualCanvasGroup == null)
+            {
+                _visualCanvasGroup = _canvasGroup;
+            }
+
+            var baseAlpha = _visualCanvasGroup != null ? _visualCanvasGroup.alpha : 1f;
+            if (_visualCanvasGroup != null)
+            {
+                _visualCanvasGroup.alpha = 0f;
+            }
+
             for (var i = 0; i < 12 && (_icon.sprite == null || !_icon.enabled); i++)
             {
                 await UniTask.Delay(TimeSpan.FromMilliseconds(50));
@@ -226,6 +238,10 @@ namespace Features.PlayerHandSystemImpl.View
 
             if (_icon.sprite == null)
             {
+                if (_visualCanvasGroup != null)
+                {
+                    _visualCanvasGroup.alpha = baseAlpha;
+                }
                 return;
             }
 
@@ -236,29 +252,57 @@ namespace Features.PlayerHandSystemImpl.View
             var targetWorld = _visualRect.position;
             _visualRect.position = source.position + new Vector3(0f, ReceiveOffsetY, 0f);
 
-            if (_visualCanvasGroup == null)
-            {
-                _visualCanvasGroup = _canvasGroup;
-            }
-
             _icon.enabled = true;
-            var baseAlpha = _visualCanvasGroup != null ? _visualCanvasGroup.alpha : 1f;
-            if (_visualCanvasGroup != null)
-            {
-                _visualCanvasGroup.alpha = 0f;
-            }
 
-            var sequence = DOTween.Sequence();
+            var sequence = DOTween.Sequence().SetUpdate(true);
             sequence.Append(_visualRect.DOMove(targetWorld, ReceiveDuration).SetEase(Ease.OutQuad));
             if (_visualCanvasGroup != null)
             {
                 sequence.Join(_visualCanvasGroup.DOFade(baseAlpha, ReceiveDuration));
             }
-            await sequence.AsyncWaitForCompletion();
+            await AwaitTweenAsync(sequence, ReceiveDuration + TweenTimeoutPadding);
             _visualRect.anchoredPosition = _visualBaseAnchored;
             if (_visualCanvasGroup != null)
             {
                 _visualCanvasGroup.alpha = baseAlpha;
+            }
+        }
+
+        private static async UniTask AwaitTweenAsync(Tween tween, float timeoutSeconds)
+        {
+            if (tween == null)
+            {
+                return;
+            }
+
+            tween.SetUpdate(true);
+            var completionTcs = new UniTaskCompletionSource();
+            var completionSignaled = false;
+            void SignalCompletion()
+            {
+                if (completionSignaled)
+                {
+                    return;
+                }
+
+                completionSignaled = true;
+                completionTcs.TrySetResult();
+            }
+
+            tween.OnComplete(SignalCompletion);
+            tween.OnKill(SignalCompletion);
+
+            if (!tween.IsActive() || tween.IsComplete())
+            {
+                SignalCompletion();
+            }
+
+            var safeTimeout = Mathf.Max(0.1f, timeoutSeconds);
+            var timeoutTask = UniTask.Delay(TimeSpan.FromSeconds(safeTimeout), DelayType.UnscaledDeltaTime);
+            var winner = await UniTask.WhenAny(completionTcs.Task, timeoutTask);
+            if (winner != 0 && tween.IsActive())
+            {
+                tween.Kill(false);
             }
         }
 

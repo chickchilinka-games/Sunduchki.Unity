@@ -2,7 +2,6 @@ using Modules.Lobby.Config;
 using Modules.Lobby.Interfaces;
 using Modules.Lobby.Model;
 using Modules.Lobby.Providers;
-using Modules.Lobby.Rules;
 using Modules.Lobby.Services;
 using Modules.SignalR;
 using Modules.SignalR.Config;
@@ -25,10 +24,10 @@ namespace Modules.Lobby.Bootstrap
 #else
             Container.Bind<ISignalRConnectionFactory>().To<DotNetSignalRConnectionFactory>().AsSingle();
 #endif
+            Container.BindInterfacesAndSelfTo<SharedGameHubConnection>().AsSingle();
             Container.Bind<ILobbySignalRClient>().To<SignalRLobbyClient>().AsSingle();
             Container.Bind<SignalR.Config.ITokenProvider>().To<SignalRTokenProvider>().AsSingle();
             Container.Bind<LobbyService>().AsSingle();
-            Container.BindInterfacesTo<LobbyConnectionRule>().AsSingle();
         }
     }
 }

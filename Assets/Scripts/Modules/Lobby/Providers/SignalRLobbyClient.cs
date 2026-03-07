@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.Lobby.Data;
@@ -10,15 +11,17 @@ namespace Modules.Lobby.Providers
 {
     internal class SignalRLobbyClient : ILobbySignalRClient
     {
-        private readonly ISignalRConnectionFactory _connectionFactory;
-        private ISignalRConnection _connection;
+        private readonly ISharedGameHubConnection _sharedHubConnection;
+        private readonly List<IDisposable> _subscriptions = new();
         private ILobbySignalRListener _listener;
-        private bool _suppressClosed;
-        private readonly RejoinCoordinator _rejoin = new();
+        private bool _joined;
+        private bool _startedSignaled;
+        private string _joinedGameId = string.Empty;
+        private string _joinedPlayerId = string.Empty;
 
-        public SignalRLobbyClient(ISignalRConnectionFactory connectionFactory)
+        public SignalRLobbyClient(ISharedGameHubConnection sharedHubConnection)
         {
-            _connectionFactory = connectionFactory;
+            _sharedHubConnection = sharedHubConnection ?? throw new ArgumentNullException(nameof(sharedHubConnection));
         }
 
         public async UniTask ConnectAsync(
@@ -34,83 +37,66 @@ namespace Modules.Lobby.Providers
             await DisconnectAsync(cancellationToken);
 
             _listener = listener ?? throw new ArgumentNullException(nameof(listener));
-            _connection = _connectionFactory.Create(options.HubUri, options.AccessToken);
-            _suppressClosed = false;
-            RegisterHandlers(_connection, _listener);
-
-            await _connection.StartAsync(cancellationToken);
-            Debug.Log($"[Lobby] SignalR connected. Hub={options.HubUri}");
+            RegisterHandlers(_listener);
+            Debug.Log($"[Lobby] SignalR shared transport is ready. Hub={options.HubUri}");
         }
 
         public async UniTask JoinGameAsync(LobbySignalRJoinPayload payload, CancellationToken cancellationToken = default)
         {
             EnsureConnected();
-
-            _rejoin.Update(payload);
-            var request = new JoinGameRequestDto
-            {
-                GameId = payload.GameId,
-                PlayerId = payload.PlayerId
-            };
-
-            Debug.Log($"[Lobby] JoinGame invoke: gameId={request.GameId}, playerId={request.PlayerId}");
-            await _connection.InvokeAsync("JoinGame", request, cancellationToken);
+            Debug.Log($"[Lobby] JoinGame invoke: gameId={payload.GameId}, playerId={payload.PlayerId}");
+            await _sharedHubConnection.AcquireAsync(
+                payload.GameId,
+                payload.PlayerId,
+                cancellationToken,
+                forceJoin: true);
+            _joined = true;
+            _joinedGameId = payload.GameId ?? string.Empty;
+            _joinedPlayerId = payload.PlayerId ?? string.Empty;
         }
 
         public async UniTask LeaveGameAsync(LobbySignalRLeavePayload payload, CancellationToken cancellationToken = default)
         {
             EnsureConnected();
-
-            var request = new LeaveGameRequestDto
+            await _sharedHubConnection.InvokeAsync("LeaveGame", new LeaveGameRequestDto
             {
                 GameId = payload.GameId,
                 PlayerId = payload.PlayerId
-            };
-
-            await _connection.InvokeAsync("LeaveGame", request, cancellationToken);
+            }, cancellationToken);
         }
 
         public async UniTask DisconnectAsync(CancellationToken cancellationToken = default)
         {
-            if (_connection == null)
+            ClearSubscriptions();
+
+            if (_joined)
             {
-                return;
+                _joined = false;
+                await _sharedHubConnection.ReleaseAsync();
             }
 
-            try
-            {
-                _suppressClosed = true;
-                await _connection.StopAsync(cancellationToken);
-            }
-            finally
-            {
-                _connection.Dispose();
-                _connection = null;
-                _listener = null;
-                _suppressClosed = false;
-            }
+            _listener = null;
+            _startedSignaled = false;
+            _joinedGameId = string.Empty;
+            _joinedPlayerId = string.Empty;
         }
 
-        private void RegisterHandlers(ISignalRConnection connection, ILobbySignalRListener listener)
+        private void RegisterHandlers(ILobbySignalRListener listener)
         {
-            connection.OnClosed(ex =>
+            ClearSubscriptions();
+
+            _subscriptions.Add(_sharedHubConnection.SubscribeClosed(error =>
             {
-                if (_suppressClosed)
-                {
-                    return;
-                }
+                listener.OnConnectionClosed(error);
+            }));
 
-                listener.OnConnectionClosed(ex?.Message);
-            });
-
-            connection.OnReconnected(_ =>
+            _subscriptions.Add(_sharedHubConnection.SubscribeReconnected(() =>
             {
-                _rejoin.HandleReconnected(
-                    JoinGameAsync,
-                    reason => listener.OnConnectionClosed(reason));
-            });
+                Debug.Log("[Lobby] SignalR reconnected and rejoined.");
+                RequestSyncState().Forget();
+            }));
 
-            connection.On<PlayerJoinedDto>("PlayerJoined", payload =>
+            _subscriptions.Add(_sharedHubConnection.Subscribe<PlayerJoinedDto>("PlayerJoined", payload =>
             {
                 if (payload == null)
                 {
@@ -119,29 +105,35 @@ namespace Modules.Lobby.Providers
 
                 Debug.Log($"[Lobby] PlayerJoined received: {payload.PlayerId}");
                 listener.OnPlayerJoined(payload.PlayerId);
-            });
+            }));
 
-            connection.On<string>("PlayerLeft", playerId =>
+            _subscriptions.Add(_sharedHubConnection.Subscribe<string>("PlayerLeft", playerId =>
             {
                 Debug.Log($"[Lobby] PlayerLeft received: {playerId}");
                 listener.OnPlayerLeft(playerId);
-            });
+            }));
 
-            connection.On("GameStarted", () =>
+            _subscriptions.Add(_sharedHubConnection.Subscribe("GameStarted", () =>
             {
-                Debug.Log("[Lobby] GameStarted received.");
-                listener.OnGameStarted();
-            });
+                NotifyGameStarted(listener, "GameStarted");
+            }));
 
-            connection.On<GameEndedResultDto>("GameEnded", payload =>
+            _subscriptions.Add(_sharedHubConnection.Subscribe<string>("TurnAdvanced", _ =>
+            {
+                // WebGL no-arg events can be dropped in edge races; turn advance is a reliable
+                // in-progress signal sent on join for started games.
+                NotifyGameStarted(listener, "TurnAdvanced");
+            }));
+
+            _subscriptions.Add(_sharedHubConnection.Subscribe<GameEndedResultDto>("GameEnded", payload =>
             {
                 Debug.Log($"[Lobby] GameEnded received: winners={payload?.WinnerPlayerIds?.Count ?? 0}");
                 listener.OnGameEnded(payload ?? new GameEndedResultDto(
                     Array.Empty<GameEndedResultDto.PlayerChestResult>(),
                     Array.Empty<string>()));
-            });
+            }));
 
-            connection.On<CardsTransferredDto>("CardsTransferred", payload =>
+            _subscriptions.Add(_sharedHubConnection.Subscribe<CardsTransferredDto>("CardsTransferred", payload =>
             {
                 if (payload == null)
                 {
@@ -171,21 +163,66 @@ namespace Modules.Lobby.Providers
 
                 Debug.Log($"[Lobby] Chest completed via transfer: playerId={payload.PlayerId}, rank={rank}");
                 listener.OnSetCompleted(payload.PlayerId, rank);
-            });
+            }));
+        }
+
+        private void ClearSubscriptions()
+        {
+            foreach (var subscription in _subscriptions)
+            {
+                subscription?.Dispose();
+            }
+
+            _subscriptions.Clear();
         }
 
         private void EnsureConnected()
         {
-            if (_connection == null)
+            if (_listener == null)
             {
                 throw new InvalidOperationException("SignalR connection has not been established. Call ConnectAsync first.");
             }
         }
 
-        private sealed class JoinGameRequestDto
+        private async UniTaskVoid RequestSyncState()
         {
-            public string GameId { get; set; }
-            public string PlayerId { get; set; }
+            if (!_joined)
+            {
+                return;
+            }
+
+            var gameId = _joinedGameId;
+            var playerId = _joinedPlayerId;
+
+            if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(playerId))
+            {
+                return;
+            }
+
+            try
+            {
+                await _sharedHubConnection.InvokeAsync("SyncState", new JoinGameRequestDto
+                {
+                    GameId = gameId,
+                    PlayerId = playerId
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Lobby] SyncState after reconnect failed: {ex.Message}");
+            }
+        }
+
+        private void NotifyGameStarted(ILobbySignalRListener listener, string source)
+        {
+            if (_startedSignaled)
+            {
+                return;
+            }
+
+            _startedSignaled = true;
+            Debug.Log($"[Lobby] GameStarted inferred from {source}.");
+            listener.OnGameStarted();
         }
 
         private sealed class PlayerJoinedDto
@@ -215,38 +252,10 @@ namespace Modules.Lobby.Providers
             public string PlayerId { get; set; }
         }
 
-        private sealed class RejoinCoordinator
+        private sealed class JoinGameRequestDto
         {
-            private LobbySignalRJoinPayload _payload;
-
-            public void Update(LobbySignalRJoinPayload payload)
-            {
-                _payload = payload;
-            }
-
-            public void HandleReconnected(
-                Func<LobbySignalRJoinPayload, CancellationToken, UniTask> rejoinAsync,
-                Action<string> onFailure)
-            {
-                if (string.IsNullOrWhiteSpace(_payload.GameId) ||
-                    string.IsNullOrWhiteSpace(_payload.PlayerId))
-                {
-                    return;
-                }
-
-                UniTask.Void(async () =>
-                {
-                    try
-                    {
-                        await rejoinAsync(_payload, CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        onFailure?.Invoke($"Rejoin failed: {ex.Message}");
-                    }
-                });
-            }
+            public string GameId { get; set; }
+            public string PlayerId { get; set; }
         }
-
     }
 }

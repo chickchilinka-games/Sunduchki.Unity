@@ -12,11 +12,12 @@ namespace Features.PlayerHandSystemImpl.ViewModel
         private readonly ReactiveProperty<bool> _canPress;
         private readonly Dictionary<string, StandardCardItemViewModel> _cardsBySuit = new(StringComparer.OrdinalIgnoreCase);
         private readonly IPlayerHandCommands _commands;
+        private readonly Subject<RankCardsReceivedEvent> _cardsReceived = new();
 
         public string Rank { get; }
         public ReadOnlyReactiveProperty<IReadOnlyList<StandardCardItemViewModel>> Cards => _cards;
         public ReadOnlyReactiveProperty<bool> CanPress => _canPress;
-        public ReactiveCommand<Unit> SetCompleted { get; }
+        public Observable<RankCardsReceivedEvent> CardsReceived => _cardsReceived;
 
         public RankStackViewModel(string rank, IEnumerable<string> suits)
             : this(rank, suits, NullPlayerHandCommands.Instance)
@@ -28,7 +29,6 @@ namespace Features.PlayerHandSystemImpl.ViewModel
             Rank = NormalizeRank(rank);
             _cards = new ReactiveProperty<IReadOnlyList<StandardCardItemViewModel>>(Array.Empty<StandardCardItemViewModel>());
             _canPress = new ReactiveProperty<bool>(false);
-            SetCompleted = new ReactiveCommand<Unit>();
             _commands = commands ?? NullPlayerHandCommands.Instance;
 
             ApplySnapshot(suits);
@@ -108,12 +108,16 @@ namespace Features.PlayerHandSystemImpl.ViewModel
         {
             _cards?.Dispose();
             _canPress?.Dispose();
-            SetCompleted?.Dispose();
+            _cardsReceived?.Dispose();
         }
 
-        public void MarkSetCompleted()
+        public void NotifyCardsReceived(string source, IReadOnlyList<string> suits, long eventSeq, bool completedSet)
         {
-            SetCompleted.Execute(Unit.Default);
+            _cardsReceived.OnNext(new RankCardsReceivedEvent(
+                source,
+                suits ?? Array.Empty<string>(),
+                eventSeq,
+                completedSet));
         }
 
         private static string NormalizeRank(string rank)

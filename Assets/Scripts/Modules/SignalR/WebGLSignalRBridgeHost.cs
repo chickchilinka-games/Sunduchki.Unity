@@ -119,7 +119,6 @@ namespace Modules.SignalR
                 return;
             }
 
-            Debug.Log($"[SignalRBridgeHost] message type={envelope.Type}, handler={envelope.Handler}, id={envelope.ConnectionId}");
             if (_connections.TryGetValue(envelope.ConnectionId, out var managed) && managed != null)
             {
                 managed.HandleMessage(envelope);

@@ -34,10 +34,11 @@ namespace Features.PlayerHandSystemImpl.View
         private DiContainer _container;
         private RankStackView _standardViewPrefab;
         private BonusCardViewPool _bonusPool;
+
         private string _localPlayerId;
+        private IDisposable _runtimeWatcher;
         private IDisposable _handChangedSubscription;
         private IDisposable _bonusChangedSubscription;
-        private IDisposable _runtimeWatcher;
         private IDisposable _cardRequestedSubscription;
         private IDisposable _cardTransferredSubscription;
         private IDisposable _cardsReceivedSubscription;
@@ -45,41 +46,69 @@ namespace Features.PlayerHandSystemImpl.View
         private readonly List<RowContainer> _rows = new();
         private readonly Dictionary<RankStackViewModel, RankStackView> _standardViews = new();
         private readonly Dictionary<BonusCardViewModel, BonusCardView> _bonusViews = new();
-        private readonly Queue<PendingReceive> _pendingReceives = new();
-        private bool _warnedMissingDeckOrigin;
-        private readonly HashSet<RankStackViewModel> _outgoingStandard = new();
-        private readonly Dictionary<RankStackViewModel, float> _outgoingStartedAt = new();
-        private readonly HashSet<string> _transferOutRanks = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, UniTaskCompletionSource> _pendingTransferOut = new(StringComparer.OrdinalIgnoreCase);
-        private readonly HashSet<string> _pendingSetCompleteRanks = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, float> _recentSetCompletedAt = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<RankStackViewModel> _removingStandard = new();
+        private readonly HashSet<RankStackViewModel> _waitingStandardAnimation = new();
+        private readonly HashSet<string> _transferredRanks = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> _activeTransferOutByRank = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, float> _transferOutReleaseAt = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, float> _removalStartGraceUntil = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _removalStartGracePending = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _pendingSetCompletionRanks = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Queue<PendingBonusReceive> _pendingBonusReceives = new();
+        private readonly List<PendingStandardReceive> _pendingStandardReceives = new();
+
         private RectTransform _cachedOpponentAnchor;
-        private const float ExternalAnimationTimeoutSeconds = 2.5f;
-        private const float OutgoingCleanupTimeoutSeconds = 6f;
-        private const float OutgoingActiveAnimationGraceSeconds = 12f;
-        private const float PendingReceiveMaxAgeSeconds = 2f;
-        private const int PendingReceiveMaxAttempts = 20;
-        private const float RecentSetCompleteWindowSeconds = 2f;
+        private bool _warnedMissingDeckOrigin;
+        private const float PendingBonusReceiveMaxAgeSeconds = 8f;
+        private const float PendingStandardReceiveMaxAgeSeconds = 8f;
+        private const float TransferOutReleaseDelaySeconds = 0.2f;
+        private const float RemovalStartGraceSeconds = 0.2f;
 
-        private sealed class PendingReceive
-        {
-            public CardsReceivedEvent Event { get; }
-            public float CreatedAt { get; }
-            public int Attempts { get; set; }
-
-            public PendingReceive(CardsReceivedEvent evt)
-            {
-                Event = evt;
-                CreatedAt = Time.realtimeSinceStartup;
-                Attempts = 0;
-            }
-        }
-
-        private class RowContainer
+        private sealed class RowContainer
         {
             public RectTransform Root;
             public HorizontalLayoutGroup Layout;
             public int Count;
+        }
+
+        private readonly struct PendingBonusReceive
+        {
+            public string BonusType { get; }
+            public string Source { get; }
+            public float CreatedAt { get; }
+
+            public PendingBonusReceive(string bonusType, string source, float createdAt)
+            {
+                BonusType = bonusType ?? string.Empty;
+                Source = source ?? string.Empty;
+                CreatedAt = createdAt;
+            }
+        }
+
+        private readonly struct PendingStandardReceive
+        {
+            public string Rank { get; }
+            public string Suit { get; }
+            public string Source { get; }
+            public long EventSeq { get; }
+            public bool CompletedSet { get; }
+            public float CreatedAt { get; }
+
+            public PendingStandardReceive(
+                string rank,
+                string suit,
+                string source,
+                long eventSeq,
+                bool completedSet,
+                float createdAt)
+            {
+                Rank = rank ?? string.Empty;
+                Suit = suit ?? string.Empty;
+                Source = source ?? string.Empty;
+                EventSeq = eventSeq;
+                CompletedSet = completedSet;
+                CreatedAt = createdAt;
+            }
         }
 
         [Inject]
@@ -126,47 +155,41 @@ namespace Features.PlayerHandSystemImpl.View
             _cardRequestedSubscription = _cardRequestPresenter.CardRequested.Subscribe(OnCardRequested);
             _cardTransferredSubscription = _cardRequestPresenter.CardTransferred.Subscribe(OnCardTransferred);
             _cardsReceivedSubscription = _cardRequestPresenter.CardsReceived.Subscribe(OnCardsReceived);
+
             _localPlayerId = _presenter.LocalPlayerId;
+            if (_presenter.IsActive.CurrentValue)
+            {
+                RenderLayout();
+            }
         }
 
         private void OnDisable()
         {
             _runtimeWatcher?.Dispose();
             _runtimeWatcher = null;
+
             _handChangedSubscription?.Dispose();
             _handChangedSubscription = null;
             _bonusChangedSubscription?.Dispose();
             _bonusChangedSubscription = null;
-            _cardsReceivedSubscription?.Dispose();
-            _cardsReceivedSubscription = null;
             _cardRequestedSubscription?.Dispose();
             _cardRequestedSubscription = null;
             _cardTransferredSubscription?.Dispose();
             _cardTransferredSubscription = null;
-            _pendingReceives.Clear();
-            _transferOutRanks.Clear();
-            _pendingTransferOut.Clear();
-            _pendingSetCompleteRanks.Clear();
-            _recentSetCompletedAt.Clear();
+            _cardsReceivedSubscription?.Dispose();
+            _cardsReceivedSubscription = null;
+
+            _transferredRanks.Clear();
+            _activeTransferOutByRank.Clear();
+            _transferOutReleaseAt.Clear();
+            _removalStartGraceUntil.Clear();
+            _removalStartGracePending.Clear();
+            _removingStandard.Clear();
+            _waitingStandardAnimation.Clear();
+            _pendingSetCompletionRanks.Clear();
+            _pendingBonusReceives.Clear();
+            _pendingStandardReceives.Clear();
             ReleaseAllViews();
-        }
-
-        private void Update()
-        {
-            if (_outgoingStandard.Count > 0)
-            {
-                var hadOutgoing = _outgoingStandard.Count > 0;
-                PruneStaleOutgoingStandard();
-                if (hadOutgoing && _outgoingStandard.Count == 0)
-                {
-                    RenderLayout();
-                }
-            }
-
-            if (_pendingReceives.Count > 0)
-            {
-                TryApplyPendingReceives();
-            }
         }
 
         private void RenderLayout()
@@ -181,28 +204,28 @@ namespace Features.PlayerHandSystemImpl.View
             var activeBonus = new HashSet<BonusCardViewModel>(_bonusPresenter.BonusCards);
 
             BeginOutgoingStandardRemovals(activeStandard);
-            PruneStaleOutgoingStandard();
-
-            if (_outgoingStandard.Count > 0)
+            if (IsLayoutLocked())
             {
-                EnsureActiveViews();
-                TryApplyPendingReceives();
+                FlushPendingStandardReceives();
+                FlushPendingBonusReceives();
+                ForceRebuildLayout();
                 return;
             }
 
             ResetRows();
-
             var slotIndex = 0;
+
             foreach (var viewModel in _presenter.StandardCards)
             {
                 var parent = GetRowTransform(slotIndex++);
-                if (!_standardViews.TryGetValue(viewModel, out var view))
+                if (!_standardViews.TryGetValue(viewModel, out var view) || view == null)
                 {
                     view = CreateStandardView(parent, viewModel);
                     if (view == null)
                     {
                         continue;
                     }
+
                     _standardViews[viewModel] = view;
                 }
                 else
@@ -215,7 +238,7 @@ namespace Features.PlayerHandSystemImpl.View
             foreach (var viewModel in _bonusPresenter.BonusCards)
             {
                 var parent = GetRowTransform(slotIndex++);
-                if (!_bonusViews.TryGetValue(viewModel, out var view))
+                if (!_bonusViews.TryGetValue(viewModel, out var view) || view == null)
                 {
                     view = _bonusPool.Spawn(parent, viewModel);
                     _bonusViews[viewModel] = view;
@@ -227,10 +250,732 @@ namespace Features.PlayerHandSystemImpl.View
                 }
             }
 
-            RemoveMissingStandardViews(activeStandard);
             RemoveMissingBonusViews(activeBonus);
+            FlushPendingStandardReceives();
+            FlushPendingBonusReceives();
             ForceRebuildLayout();
-            TryApplyPendingReceives();
+        }
+
+        private void BeginOutgoingStandardRemovals(IReadOnlyCollection<RankStackViewModel> active)
+        {
+            var toRemove = new List<(RankStackViewModel ViewModel, RankStackView View)>();
+            foreach (var entry in _standardViews)
+            {
+                var viewModel = entry.Key;
+                var view = entry.Value;
+                if (viewModel == null || view == null)
+                {
+                    toRemove.Add((viewModel, view));
+                    continue;
+                }
+
+                if (active.Contains(viewModel))
+                {
+                    continue;
+                }
+
+                toRemove.Add((viewModel, view));
+            }
+
+            foreach (var removal in toRemove)
+            {
+                BeginStandardRemoval(removal.ViewModel, removal.View);
+            }
+        }
+
+        private void BeginStandardRemoval(RankStackViewModel viewModel, RankStackView view)
+        {
+            if (viewModel == null || view == null)
+            {
+                FinalizeStandardRemoval(viewModel, view);
+                return;
+            }
+
+            if (_removingStandard.Contains(viewModel))
+            {
+                return;
+            }
+
+            var rankKey = NormalizeRank(viewModel.Rank);
+            if (IsTransferOutInProgress(rankKey))
+            {
+                if (_waitingStandardAnimation.Add(viewModel))
+                {
+                    WaitAndRetryRemovalAsync(
+                        viewModel,
+                        view,
+                        waitForRemovalStartGrace: false,
+                        waitForSetCompletion: false,
+                        waitForTransferOut: true).Forget();
+                }
+
+                return;
+            }
+
+            if (ShouldWaitTransferOutStart(rankKey))
+            {
+                if (_waitingStandardAnimation.Add(viewModel))
+                {
+                    _removalStartGracePending.Add(rankKey);
+                    WaitAndRetryRemovalAsync(
+                        viewModel,
+                        view,
+                        waitForRemovalStartGrace: true,
+                        waitForSetCompletion: false,
+                        waitForTransferOut: false).Forget();
+                }
+
+                return;
+            }
+
+            if (IsPendingSetCompletion(rankKey) && !view.HasCompletedSetAnimation)
+            {
+                if (_waitingStandardAnimation.Add(viewModel))
+                {
+                    WaitAndRetryRemovalAsync(
+                        viewModel,
+                        view,
+                        waitForRemovalStartGrace: false,
+                        waitForSetCompletion: true,
+                        waitForTransferOut: false).Forget();
+                }
+
+                return;
+            }
+
+            if (view.HasActiveAnimations)
+            {
+                if (_waitingStandardAnimation.Add(viewModel))
+                {
+                    WaitAndRetryRemovalAsync(
+                        viewModel,
+                        view,
+                        waitForRemovalStartGrace: false,
+                        waitForSetCompletion: false,
+                        waitForTransferOut: false).Forget();
+                }
+
+                return;
+            }
+
+            if (view.HasCompletedSetAnimation)
+            {
+                FinalizeStandardRemoval(viewModel, view);
+                return;
+            }
+
+            if (!_removingStandard.Add(viewModel))
+            {
+                return;
+            }
+
+            if (IsTransferredRank(rankKey))
+            {
+                view.MarkTransferredOut();
+            }
+
+            AnimateAndDespawnStandard(viewModel, view).Forget();
+        }
+
+        private async UniTaskVoid WaitAndRetryRemovalAsync(
+            RankStackViewModel viewModel,
+            RankStackView view,
+            bool waitForRemovalStartGrace,
+            bool waitForSetCompletion,
+            bool waitForTransferOut)
+        {
+            try
+            {
+                if (view != null)
+                {
+                    if (waitForRemovalStartGrace)
+                    {
+                        await UniTask.WaitUntil(() =>
+                            !ShouldWaitTransferOutStart(viewModel?.Rank));
+                    }
+
+                    if (waitForTransferOut)
+                    {
+                        await UniTask.WaitUntil(() => !IsTransferOutInProgress(viewModel?.Rank));
+                    }
+
+                    if (waitForSetCompletion)
+                    {
+                        await UniTask.WaitUntil(() =>
+                            view == null ||
+                            view.HasCompletedSetAnimation ||
+                            !IsPendingSetCompletion(viewModel?.Rank));
+                    }
+
+                    await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate);
+                    if (view.HasActiveAnimations)
+                    {
+                        await view.WaitForIdleAnimationsAsync();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                var rank = NormalizeRank(viewModel?.Rank);
+                Debug.LogWarning($"[PlayerHand] Wait for idle animations failed for rank '{rank}': {ex.Message}");
+            }
+            finally
+            {
+                _removalStartGracePending.Remove(NormalizeRank(viewModel?.Rank));
+                _waitingStandardAnimation.Remove(viewModel);
+                RenderLayout();
+            }
+        }
+
+        private async UniTaskVoid AnimateAndDespawnStandard(RankStackViewModel viewModel, RankStackView view)
+        {
+            var rankKey = NormalizeRank(viewModel?.Rank);
+            try
+            {
+                if (view != null)
+                {
+                    await view.WaitForExternalAnimationsAsync();
+                    if (!view.SkipRemovalAnimation)
+                    {
+                        await view.PlayTransferRemovalAnimationAsync();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[PlayerHand] Failed outgoing animation for rank '{rankKey}': {ex.Message}");
+            }
+            finally
+            {
+                FinalizeStandardRemoval(viewModel, view);
+                RenderLayout();
+            }
+        }
+
+        private void FinalizeStandardRemoval(RankStackViewModel viewModel, RankStackView view)
+        {
+            if (viewModel != null)
+            {
+                _standardViews.Remove(viewModel);
+                _removingStandard.Remove(viewModel);
+                _waitingStandardAnimation.Remove(viewModel);
+                ClearTransferredRank(viewModel.Rank);
+                ClearTransferOutInProgress(viewModel.Rank);
+                ClearRemovalStartGrace(viewModel.Rank);
+                ClearPendingSetCompletion(viewModel.Rank);
+            }
+
+            SafeDespawnStandardView(view, NormalizeRank(viewModel?.Rank));
+        }
+
+        private void OnSetCompletionAnimationFinished(RankStackView view)
+        {
+            if (view == null)
+            {
+                return;
+            }
+
+            RankStackViewModel viewModel = null;
+            foreach (var entry in _standardViews)
+            {
+                if (ReferenceEquals(entry.Value, view))
+                {
+                    viewModel = entry.Key;
+                    break;
+                }
+            }
+
+            if (viewModel == null)
+            {
+                return;
+            }
+
+            if (IsViewModelActive(viewModel))
+            {
+                return;
+            }
+
+            if (_removingStandard.Contains(viewModel))
+            {
+                return;
+            }
+
+            if (IsTransferOutInProgress(viewModel.Rank) || view.HasActiveAnimations)
+            {
+                if (_waitingStandardAnimation.Add(viewModel))
+                {
+                    WaitAndRetryRemovalAsync(
+                        viewModel,
+                        view,
+                        waitForRemovalStartGrace: false,
+                        waitForSetCompletion: false,
+                        waitForTransferOut: true).Forget();
+                }
+
+                return;
+            }
+
+            ClearPendingSetCompletion(viewModel.Rank);
+            FinalizeStandardRemoval(viewModel, view);
+            RenderLayout();
+        }
+
+        private void OnStandardViewAnimationsBecameIdle(RankStackView view)
+        {
+            if (view == null || !_presenter.IsActive.CurrentValue)
+            {
+                return;
+            }
+
+            RenderLayout();
+        }
+
+        private bool IsViewModelActive(RankStackViewModel viewModel)
+        {
+            if (viewModel == null)
+            {
+                return false;
+            }
+
+            foreach (var current in _presenter.StandardCards)
+            {
+                if (ReferenceEquals(current, viewModel))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void RemoveMissingBonusViews(IReadOnlyCollection<BonusCardViewModel> active)
+        {
+            var toRemove = new List<BonusCardViewModel>();
+            foreach (var entry in _bonusViews)
+            {
+                if (!active.Contains(entry.Key))
+                {
+                    toRemove.Add(entry.Key);
+                }
+            }
+
+            foreach (var viewModel in toRemove)
+            {
+                if (_bonusViews.TryGetValue(viewModel, out var view))
+                {
+                    _bonusViews.Remove(viewModel);
+                    SafeDespawnBonusView(view);
+                }
+            }
+        }
+
+        private void OnCardRequested(CardRequestEvent evt)
+        {
+            // Placeholder for future UI hooks.
+        }
+
+        private void OnCardTransferred(CardRequestEvent evt)
+        {
+            if (_cardTransferAnimator == null)
+            {
+                _cardTransferAnimator = FindObjectOfType<CardTransferAnimator>();
+                if (_cardTransferAnimator == null)
+                {
+                    return;
+                }
+            }
+
+            if (string.Equals(evt.TargetId, "chest", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_localPlayerId))
+            {
+                _localPlayerId = _presenter.LocalPlayerId;
+            }
+
+            _cardTransferAnimator.AnimateTransfer(evt, _localPlayerId);
+        }
+
+        private void OnCardsReceived(CardsReceivedEvent evt)
+        {
+            if (!_presenter.IsActive.CurrentValue)
+            {
+                return;
+            }
+
+            DispatchStandardReceives(evt);
+            DispatchBonusReceives(evt);
+            FlushPendingStandardReceives();
+            FlushPendingBonusReceives();
+        }
+
+        private void DispatchStandardReceives(CardsReceivedEvent evt)
+        {
+            if ((evt.StandardCards == null || evt.StandardCards.Count == 0) &&
+                (!evt.CompletedSet || string.IsNullOrWhiteSpace(evt.CompletedSetRank)))
+            {
+                return;
+            }
+
+            var completedRank = NormalizeRank(evt.CompletedSetRank);
+            var completedRankNotified = false;
+
+            var grouped = (evt.StandardCards ?? Array.Empty<StandardCardData>())
+                .Where(card => !string.IsNullOrWhiteSpace(card.Rank))
+                .GroupBy(card => NormalizeRank(card.Rank));
+
+            foreach (var group in grouped)
+            {
+                var suits = group
+                    .Select(card => NormalizeSuit(card.Suit))
+                    .Where(suit => !string.IsNullOrWhiteSpace(suit))
+                    .ToList();
+
+                var completedSetForRank = evt.CompletedSet &&
+                                          string.Equals(group.Key, completedRank, StringComparison.OrdinalIgnoreCase);
+                if (completedSetForRank &&
+                    (IsTransferredRank(group.Key) || IsTransferOutInProgress(group.Key)))
+                {
+                    completedSetForRank = false;
+                }
+
+                if (suits.Count == 0 && !completedSetForRank)
+                {
+                    continue;
+                }
+
+                if (!TryGetStandardViewModel(group.Key, out var viewModel) ||
+                    !TryGetStandardCardView(group.Key, out _))
+                {
+                    EnqueuePendingStandardReceive(
+                        group.Key,
+                        suits,
+                        evt.Source,
+                        evt.EventSeq,
+                        completedSetForRank);
+                    continue;
+                }
+
+                if (completedSetForRank)
+                {
+                    MarkPendingSetCompletion(group.Key);
+                    completedRankNotified = true;
+                }
+
+                viewModel.NotifyCardsReceived(evt.Source, suits, evt.EventSeq, completedSetForRank);
+            }
+
+            if (evt.CompletedSet &&
+                !completedRankNotified &&
+                !string.IsNullOrWhiteSpace(completedRank))
+            {
+                var transferOutInProgress = IsTransferredRank(completedRank) || IsTransferOutInProgress(completedRank);
+                if (transferOutInProgress)
+                {
+                    return;
+                }
+
+                if (TryGetStandardViewModel(completedRank, out var completedViewModel) &&
+                    TryGetStandardCardView(completedRank, out _))
+                {
+                    MarkPendingSetCompletion(completedRank);
+                    completedViewModel.NotifyCardsReceived(
+                        evt.Source,
+                        Array.Empty<string>(),
+                        evt.EventSeq,
+                        completedSet: true);
+                }
+                else
+                {
+                    EnqueuePendingStandardReceive(
+                        completedRank,
+                        Array.Empty<string>(),
+                        evt.Source,
+                        evt.EventSeq,
+                        completedSet: true);
+                }
+            }
+        }
+
+        private void EnqueuePendingStandardReceive(
+            string rank,
+            IReadOnlyList<string> suits,
+            string source,
+            long eventSeq,
+            bool completedSet)
+        {
+            var rankKey = NormalizeRank(rank);
+            if (string.IsNullOrWhiteSpace(rankKey))
+            {
+                return;
+            }
+
+            var now = Time.unscaledTime;
+            if (suits != null && suits.Count > 0)
+            {
+                foreach (var suit in suits)
+                {
+                    var suitKey = NormalizeSuit(suit);
+                    if (string.IsNullOrWhiteSpace(suitKey))
+                    {
+                        continue;
+                    }
+
+                    _pendingStandardReceives.Add(new PendingStandardReceive(
+                        rankKey,
+                        suitKey,
+                        source,
+                        eventSeq,
+                        completedSet,
+                        now));
+                }
+
+                return;
+            }
+
+            _pendingStandardReceives.Add(new PendingStandardReceive(
+                rankKey,
+                string.Empty,
+                source,
+                eventSeq,
+                completedSet,
+                now));
+        }
+
+        private void FlushPendingStandardReceives()
+        {
+            if (_pendingStandardReceives.Count == 0)
+            {
+                return;
+            }
+
+            var now = Time.unscaledTime;
+            _pendingStandardReceives.RemoveAll(item => now - item.CreatedAt > PendingStandardReceiveMaxAgeSeconds);
+            if (_pendingStandardReceives.Count == 0)
+            {
+                return;
+            }
+
+            var grouped = _pendingStandardReceives
+                .GroupBy(item => new { item.Rank, item.Source, item.EventSeq, item.CompletedSet })
+                .ToList();
+
+            var consumed = new HashSet<PendingStandardReceive>();
+            foreach (var group in grouped)
+            {
+                if (!TryGetStandardViewModel(group.Key.Rank, out var viewModel) ||
+                    !TryGetStandardCardView(group.Key.Rank, out _))
+                {
+                    continue;
+                }
+
+                var suits = group
+                    .Select(item => item.Suit)
+                    .Where(suit => !string.IsNullOrWhiteSpace(suit))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var completedSetForRank = group.Key.CompletedSet;
+                if (completedSetForRank &&
+                    (IsTransferredRank(group.Key.Rank) || IsTransferOutInProgress(group.Key.Rank)))
+                {
+                    completedSetForRank = false;
+                }
+
+                if (completedSetForRank)
+                {
+                    MarkPendingSetCompletion(group.Key.Rank);
+                }
+
+                viewModel.NotifyCardsReceived(
+                    group.Key.Source,
+                    suits,
+                    group.Key.EventSeq,
+                    completedSetForRank);
+
+                foreach (var item in group)
+                {
+                    consumed.Add(item);
+                }
+            }
+
+            if (consumed.Count == 0)
+            {
+                return;
+            }
+
+            _pendingStandardReceives.RemoveAll(consumed.Contains);
+        }
+
+        private IReadOnlyList<string> GetPendingStandardSuitsForRank(string rank)
+        {
+            var rankKey = NormalizeRank(rank);
+            if (string.IsNullOrWhiteSpace(rankKey) || _pendingStandardReceives.Count == 0)
+            {
+                return Array.Empty<string>();
+            }
+
+            return _pendingStandardReceives
+                .Where(item => string.Equals(item.Rank, rankKey, StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.Suit)
+                .Where(suit => !string.IsNullOrWhiteSpace(suit))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private void DispatchBonusReceives(CardsReceivedEvent evt)
+        {
+            if (evt.BonusCards == null || evt.BonusCards.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var card in evt.BonusCards)
+            {
+                var origin = ResolveReceiveOrigin(evt.Source);
+                if (origin == null || !TryAnimateBonusReceive(card, origin))
+                {
+                    EnqueuePendingBonusReceive(card.BonusType, evt.Source);
+                }
+            }
+        }
+
+        private void EnqueuePendingBonusReceive(string bonusType, string source)
+        {
+            if (string.IsNullOrWhiteSpace(bonusType))
+            {
+                return;
+            }
+
+            _pendingBonusReceives.Enqueue(new PendingBonusReceive(
+                NormalizeBonus(bonusType),
+                source,
+                Time.unscaledTime));
+        }
+
+        private void FlushPendingBonusReceives()
+        {
+            if (_pendingBonusReceives.Count == 0)
+            {
+                return;
+            }
+
+            var now = Time.unscaledTime;
+            var pendingCount = _pendingBonusReceives.Count;
+            for (var i = 0; i < pendingCount; i++)
+            {
+                var pending = _pendingBonusReceives.Dequeue();
+                if (now - pending.CreatedAt > PendingBonusReceiveMaxAgeSeconds)
+                {
+                    continue;
+                }
+
+                var origin = ResolveReceiveOrigin(pending.Source);
+                if (origin == null ||
+                    !TryAnimateBonusReceive(new BonusCardData(pending.BonusType), origin))
+                {
+                    _pendingBonusReceives.Enqueue(pending);
+                }
+            }
+        }
+
+        private bool TryAnimateBonusReceive(BonusCardData card, RectTransform origin)
+        {
+            var typeKey = NormalizeBonus(card.BonusType);
+            foreach (var viewModel in _bonusPresenter.BonusCards)
+            {
+                if (!string.Equals(viewModel.BonusCardType, typeKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (_bonusViews.TryGetValue(viewModel, out var view) && view != null)
+                {
+                    view.PlayReceiveFromAsync(origin).Forget();
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool TryGetStandardViewModel(string rank, out RankStackViewModel viewModel)
+        {
+            viewModel = null;
+            var rankKey = NormalizeRank(rank);
+            if (string.IsNullOrWhiteSpace(rankKey))
+            {
+                return false;
+            }
+
+            foreach (var candidate in _presenter.StandardCards)
+            {
+                if (candidate == null)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(candidate.Rank, rankKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                viewModel = candidate;
+                return true;
+            }
+
+            return false;
+        }
+
+        private RectTransform ResolveReceiveOrigin(string source)
+        {
+            if (string.Equals(source, "deck", StringComparison.OrdinalIgnoreCase))
+            {
+                return ResolveDeckOrigin();
+            }
+
+            return ResolveOpponentHandAnchor();
+        }
+
+        private RectTransform ResolveDeckOrigin()
+        {
+            if (_deckOrigin != null)
+            {
+                return _deckOrigin;
+            }
+
+            var fallback = _rowsRoot != null ? _rowsRoot : transform as RectTransform;
+            if (fallback == null)
+            {
+                return null;
+            }
+
+            if (!_warnedMissingDeckOrigin)
+            {
+                _warnedMissingDeckOrigin = true;
+                Debug.LogWarning("[PlayerHand] Deck origin is not assigned, using hand root as fallback.");
+            }
+
+            return fallback;
+        }
+
+        private RectTransform ResolveOpponentHandAnchor()
+        {
+            if (_opponentHandAnchor != null)
+            {
+                return _opponentHandAnchor;
+            }
+
+            if (_cachedOpponentAnchor != null)
+            {
+                return _cachedOpponentAnchor;
+            }
+
+            var animator = _cardTransferAnimator ?? FindObjectOfType<CardTransferAnimator>();
+            _cachedOpponentAnchor = animator != null ? animator.OpponentHandAnchor : null;
+            return _cachedOpponentAnchor;
         }
 
         private void ResetRows()
@@ -238,10 +983,7 @@ namespace Features.PlayerHandSystemImpl.View
             foreach (var row in _rows)
             {
                 row.Count = 0;
-                if (!RowHasOutgoing(row.Root))
-                {
-                    row.Root.gameObject.SetActive(false);
-                }
+                row.Root.gameObject.SetActive(false);
             }
         }
 
@@ -289,184 +1031,59 @@ namespace Features.PlayerHandSystemImpl.View
             };
         }
 
+        private RankStackView CreateStandardView(Transform parent, RankStackViewModel viewModel)
+        {
+            if (_container == null || _standardViewPrefab == null || viewModel == null)
+            {
+                Debug.LogWarning("[PlayerHand] Failed to create standard stack view: missing DI container or prefab.");
+                return null;
+            }
+
+            var view = _container.InstantiatePrefabForComponent<RankStackView>(_standardViewPrefab, parent);
+            if (view == null)
+            {
+                return null;
+            }
+
+            view.transform.SetParent(parent, false);
+            view.gameObject.SetActive(true);
+            view.ConfigureReceiveOrigins(ResolveDeckOrigin, ResolveOpponentHandAnchor);
+            var pendingSuits = GetPendingStandardSuitsForRank(viewModel.Rank);
+            if (pendingSuits.Count > 0)
+            {
+                view.SetPendingReceiveSuits(pendingSuits);
+            }
+            view.SetCompletionAnimationFinished += OnSetCompletionAnimationFinished;
+            view.AnimationsBecameIdle += OnStandardViewAnimationsBecameIdle;
+            view.Initialize(viewModel).Forget();
+            return view;
+        }
+
         private void ReleaseAllViews()
         {
             foreach (var view in _standardViews.Values)
             {
                 SafeDespawnStandardView(view, string.Empty);
             }
+
             _standardViews.Clear();
-            _outgoingStandard.Clear();
-            _outgoingStartedAt.Clear();
+            _removingStandard.Clear();
+            _waitingStandardAnimation.Clear();
+            _transferredRanks.Clear();
+            _activeTransferOutByRank.Clear();
+            _transferOutReleaseAt.Clear();
+            _removalStartGraceUntil.Clear();
+            _removalStartGracePending.Clear();
+            _pendingSetCompletionRanks.Clear();
+            _pendingBonusReceives.Clear();
+            _pendingStandardReceives.Clear();
 
             foreach (var view in _bonusViews.Values)
             {
                 SafeDespawnBonusView(view);
             }
+
             _bonusViews.Clear();
-        }
-
-        private void RemoveMissingStandardViews(IReadOnlyCollection<RankStackViewModel> active)
-        {
-            foreach (var entry in _standardViews)
-            {
-                if (!active.Contains(entry.Key) && !_outgoingStandard.Contains(entry.Key))
-                {
-                    BeginStandardRemoval(entry.Key, entry.Value);
-                }
-            }
-        }
-
-        private void BeginOutgoingStandardRemovals(IReadOnlyCollection<RankStackViewModel> active)
-        {
-            var toRemove = new List<RankStackViewModel>();
-            foreach (var entry in _standardViews)
-            {
-                if (!active.Contains(entry.Key) && !_outgoingStandard.Contains(entry.Key))
-                {
-                    toRemove.Add(entry.Key);
-                }
-            }
-
-            foreach (var viewModel in toRemove)
-            {
-                if (_standardViews.TryGetValue(viewModel, out var view))
-                {
-                    BeginStandardRemoval(viewModel, view);
-                }
-            }
-        }
-
-        private void BeginStandardRemoval(RankStackViewModel viewModel, RankStackView view)
-        {
-            if (viewModel == null || view == null)
-            {
-                return;
-            }
-
-            _outgoingStandard.Add(viewModel);
-            _outgoingStartedAt[viewModel] = Time.realtimeSinceStartup;
-            view.gameObject.SetActive(true);
-            AnimateAndDespawnStandard(viewModel, view).Forget();
-        }
-
-        private async UniTaskVoid AnimateAndDespawnStandard(RankStackViewModel viewModel, RankStackView view)
-        {
-            if (view == null)
-            {
-                return;
-            }
-
-            var rankKey = NormalizeRank(viewModel?.Rank);
-            try
-            {
-                await WaitForTransferOutAsync(rankKey);
-                await WaitForExternalAnimationsOrTimeoutAsync(view, rankKey);
-                if (!view.HasPendingSetComplete && !IsSetCompleteRank(rankKey))
-                {
-                    await WaitForSetCompleteAsync(rankKey);
-                }
-                if (IsRankTransferredOut(rankKey))
-                {
-                    view.MarkTransferredOut();
-                }
-                if (view.HasPendingSetComplete || IsSetCompleteRank(rankKey))
-                {
-                    await view.PlaySetCompleteAnimationAsync();
-                }
-                else if (!view.SkipRemovalAnimation)
-                {
-                    await view.PlayTransferRemovalAnimationAsync();
-                }
-                else
-                {
-                    // Skip fade-out when transfer animation already played.
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[PlayerHand] Failed to animate outgoing rank '{rankKey}': {ex.Message}");
-            }
-            finally
-            {
-                if (viewModel != null)
-                {
-                    _standardViews.Remove(viewModel);
-                }
-
-                RemoveOutgoingTracking(viewModel);
-                ClearTransferredRank(rankKey);
-                ClearSetCompleteRank(rankKey);
-                SafeDespawnStandardView(view, rankKey);
-
-                RenderLayout();
-            }
-        }
-
-        private void PruneStaleOutgoingStandard()
-        {
-            if (_outgoingStandard.Count == 0)
-            {
-                return;
-            }
-
-            var now = Time.realtimeSinceStartup;
-            var stale = new List<RankStackViewModel>();
-            foreach (var viewModel in _outgoingStandard)
-            {
-                if (viewModel == null)
-                {
-                    stale.Add(viewModel);
-                    continue;
-                }
-
-                if (!_standardViews.TryGetValue(viewModel, out var view) || view == null)
-                {
-                    stale.Add(viewModel);
-                    continue;
-                }
-
-                if (!_outgoingStartedAt.TryGetValue(viewModel, out var startedAt))
-                {
-                    _outgoingStartedAt[viewModel] = now;
-                    continue;
-                }
-
-                var age = now - startedAt;
-                if (age < OutgoingCleanupTimeoutSeconds)
-                {
-                    continue;
-                }
-
-                if (view.HasActiveAnimations && age < OutgoingActiveAnimationGraceSeconds)
-                {
-                    continue;
-                }
-
-                var rankKey = NormalizeRank(viewModel.Rank);
-                Debug.LogWarning(
-                    $"[PlayerHand] Outgoing rank timeout for '{rankKey}' after {age:F2}s. Forcing cleanup.");
-                _standardViews.Remove(viewModel);
-                SafeDespawnStandardView(view, rankKey);
-                ClearTransferredRank(rankKey);
-                ClearSetCompleteRank(rankKey);
-                stale.Add(viewModel);
-            }
-
-            foreach (var viewModel in stale)
-            {
-                RemoveOutgoingTracking(viewModel);
-            }
-        }
-
-        private void RemoveOutgoingTracking(RankStackViewModel viewModel)
-        {
-            if (viewModel != null)
-            {
-                _outgoingStartedAt.Remove(viewModel);
-            }
-
-            _outgoingStandard.Remove(viewModel);
         }
 
         private void SafeDespawnStandardView(RankStackView view, string rankKey)
@@ -478,6 +1095,8 @@ namespace Features.PlayerHandSystemImpl.View
 
             try
             {
+                view.SetCompletionAnimationFinished -= OnSetCompletionAnimationFinished;
+                view.AnimationsBecameIdle -= OnStandardViewAnimationsBecameIdle;
                 Destroy(view.gameObject);
             }
             catch (Exception ex)
@@ -503,379 +1122,6 @@ namespace Features.PlayerHandSystemImpl.View
             }
         }
 
-        private async UniTask WaitForExternalAnimationsOrTimeoutAsync(RankStackView view, string rankKey)
-        {
-            if (view == null)
-            {
-                return;
-            }
-
-            var waitTask = view.WaitForExternalAnimationsAsync();
-            var timeoutTask = UniTask.Delay(
-                TimeSpan.FromSeconds(ExternalAnimationTimeoutSeconds),
-                DelayType.UnscaledDeltaTime);
-            var winner = await UniTask.WhenAny(waitTask, timeoutTask);
-            if (winner == 0)
-            {
-                return;
-            }
-
-            Debug.LogWarning($"[PlayerHand] External animation timeout for rank='{rankKey}'. Forcing cleanup.");
-            view.ForceCompleteExternalAnimations();
-        }
-
-        private void RemoveMissingBonusViews(IReadOnlyCollection<BonusCardViewModel> active)
-        {
-            var toRemove = new List<BonusCardViewModel>();
-            foreach (var entry in _bonusViews)
-            {
-                if (!active.Contains(entry.Key))
-                {
-                    toRemove.Add(entry.Key);
-                }
-            }
-
-            foreach (var viewModel in toRemove)
-            {
-                if (_bonusViews.TryGetValue(viewModel, out var view))
-                {
-                    _bonusViews.Remove(viewModel);
-                    SafeDespawnBonusView(view);
-                }
-            }
-        }
-
-        private void OnCardsReceived(CardsReceivedEvent evt)
-        {
-            _pendingReceives.Enqueue(new PendingReceive(evt));
-            TryApplyPendingReceives();
-        }
-
-        private RankStackView CreateStandardView(Transform parent, RankStackViewModel viewModel)
-        {
-            if (_container == null || _standardViewPrefab == null || viewModel == null)
-            {
-                Debug.LogWarning("[PlayerHand] Failed to create standard stack view: missing DI container or prefab.");
-                return null;
-            }
-
-            var view = _container.InstantiatePrefabForComponent<RankStackView>(_standardViewPrefab, parent);
-            if (view == null)
-            {
-                return null;
-            }
-
-            view.transform.SetParent(parent, false);
-            view.gameObject.SetActive(true);
-            view.Initialize(viewModel).Forget();
-            return view;
-        }
-
-        private void OnCardRequested(CardRequestEvent evt)
-        {
-            // Placeholder for future UI hooks.
-        }
-
-        private void OnCardTransferred(CardRequestEvent evt)
-        {
-            if (_cardTransferAnimator == null)
-            {
-                _cardTransferAnimator = FindObjectOfType<CardTransferAnimator>();
-                if (_cardTransferAnimator == null)
-                {
-                    return;
-                }
-            }
-
-            if (string.Equals(evt.TargetId, "chest", StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(_localPlayerId))
-            {
-                _localPlayerId = _presenter.LocalPlayerId;
-            }
-
-            _cardTransferAnimator.AnimateTransfer(evt, _localPlayerId);
-        }
-
-        public void MarkRankTransferredOut(string rank)
-        {
-            if (string.IsNullOrWhiteSpace(rank))
-            {
-                return;
-            }
-
-            var rankKey = NormalizeRank(rank);
-            _transferOutRanks.Add(rankKey);
-            if (!_pendingTransferOut.ContainsKey(rankKey))
-            {
-                _pendingTransferOut[rankKey] = new UniTaskCompletionSource();
-            }
-        }
-
-        public void CompleteRankTransfer(string rank)
-        {
-            if (string.IsNullOrWhiteSpace(rank))
-            {
-                return;
-            }
-
-            var rankKey = NormalizeRank(rank);
-            if (_pendingTransferOut.TryGetValue(rankKey, out var tcs))
-            {
-                tcs.TrySetResult();
-                _pendingTransferOut.Remove(rankKey);
-            }
-        }
-
-        private void TryApplyPendingReceives()
-        {
-            if (_pendingReceives.Count == 0 || !_presenter.IsActive.CurrentValue)
-            {
-                return;
-            }
-
-            var safety = _pendingReceives.Count;
-            while (_pendingReceives.Count > 0 && safety-- > 0)
-            {
-                var pending = _pendingReceives.Peek();
-                if (!TryAnimateReceive(pending.Event))
-                {
-                    pending.Attempts++;
-                    var age = Time.realtimeSinceStartup - pending.CreatedAt;
-                    if (age >= PendingReceiveMaxAgeSeconds || pending.Attempts >= PendingReceiveMaxAttempts)
-                    {
-                        if (pending.Event.CompletedSet && !string.IsNullOrWhiteSpace(pending.Event.CompletedSetRank))
-                        {
-                            RegisterSetCompletionRank(pending.Event.CompletedSetRank);
-                        }
-
-                        Debug.LogWarning(
-                            $"[PlayerHand] Dropping stale CardsReceived event after {age:F2}s and {pending.Attempts} attempts. " +
-                            $"source={pending.Event.Source}, standard={pending.Event.StandardCards.Count}, bonus={pending.Event.BonusCards.Count}");
-                        _pendingReceives.Dequeue();
-                        continue;
-                    }
-
-                    return;
-                }
-
-                _pendingReceives.Dequeue();
-            }
-        }
-
-        private bool TryAnimateReceive(CardsReceivedEvent evt)
-        {
-            var origin = ResolveReceiveOrigin(evt.Source);
-            if (origin == null)
-            {
-                return false;
-            }
-
-            var standardToAnimate = BuildStandardReceiveList(evt);
-
-            foreach (var card in standardToAnimate)
-            {
-                if (!CanAnimateStandardReceive(card))
-                {
-                    return false;
-                }
-            }
-
-            foreach (var card in evt.BonusCards)
-            {
-                if (!CanAnimateBonusReceive(card))
-                {
-                    return false;
-                }
-            }
-
-            foreach (var card in standardToAnimate)
-            {
-                PrepareStandardReceive(card);
-            }
-
-            foreach (var card in standardToAnimate)
-            {
-                if (!TryAnimateStandardReceive(card, origin))
-                {
-                    return false;
-                }
-            }
-
-            foreach (var card in evt.BonusCards)
-            {
-                if (!TryAnimateBonusReceive(card, origin))
-                {
-                    return false;
-                }
-            }
-
-            if (evt.CompletedSet && !string.IsNullOrWhiteSpace(evt.CompletedSetRank))
-            {
-                RegisterSetCompletionRank(evt.CompletedSetRank);
-            }
-
-            return true;
-        }
-
-        private List<StandardCardData> BuildStandardReceiveList(CardsReceivedEvent evt)
-        {
-            var result = new List<StandardCardData>();
-            var completedRankKey = evt.CompletedSet ? NormalizeRank(evt.CompletedSetRank) : string.Empty;
-            var completedRankAnimated = false;
-
-            foreach (var card in evt.StandardCards)
-            {
-                if (ShouldSkipStandardReceive(evt, card.Rank))
-                {
-                    continue;
-                }
-
-                var rankKey = NormalizeRank(card.Rank);
-                if (!string.IsNullOrWhiteSpace(completedRankKey) &&
-                    string.Equals(rankKey, completedRankKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    if (completedRankAnimated)
-                    {
-                        continue;
-                    }
-
-                    completedRankAnimated = true;
-                }
-
-                result.Add(card);
-            }
-
-            return result;
-        }
-
-        private RectTransform ResolveReceiveOrigin(string source)
-        {
-            if (string.Equals(source, "deck", StringComparison.OrdinalIgnoreCase))
-            {
-                return ResolveDeckOrigin();
-            }
-
-            return ResolveOpponentHandAnchor();
-        }
-
-        private bool TryAnimateStandardReceive(StandardCardData card, RectTransform origin)
-        {
-            if (!TryGetStandardView(card.Rank, out var view))
-            {
-                return false;
-            }
-
-            var suitKey = NormalizeSuit(card.Suit);
-            view.PlayReceiveFromAsync(origin, suitKey).Forget();
-            return true;
-        }
-
-        private void PrepareStandardReceive(StandardCardData card)
-        {
-            if (!TryGetStandardView(card.Rank, out var view))
-            {
-                return;
-            }
-
-            var suitKey = NormalizeSuit(card.Suit);
-            view.PrepareReceive(suitKey);
-        }
-
-        private bool TryAnimateBonusReceive(BonusCardData card, RectTransform origin)
-        {
-            var typeKey = NormalizeBonus(card.BonusType);
-            foreach (var viewModel in _bonusPresenter.BonusCards)
-            {
-                if (!string.Equals(viewModel.BonusCardType, typeKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (_bonusViews.TryGetValue(viewModel, out var view))
-                {
-                    view.PlayReceiveFromAsync(origin).Forget();
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private bool CanAnimateStandardReceive(StandardCardData card)
-        {
-            return TryGetStandardView(card.Rank, out _);
-        }
-
-        private bool CanAnimateBonusReceive(BonusCardData card)
-        {
-            var typeKey = NormalizeBonus(card.BonusType);
-            foreach (var viewModel in _bonusPresenter.BonusCards)
-            {
-                if (!string.Equals(viewModel.BonusCardType, typeKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (_bonusViews.TryGetValue(viewModel, out var view) && view != null)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private RectTransform ResolveDeckOrigin()
-        {
-            if (_deckOrigin != null)
-            {
-                return _deckOrigin;
-            }
-
-            var fallback = _rowsRoot != null ? _rowsRoot : transform as RectTransform;
-            if (fallback == null)
-            {
-                return null;
-            }
-
-            if (!_warnedMissingDeckOrigin)
-            {
-                _warnedMissingDeckOrigin = true;
-                Debug.LogWarning("[PlayerHand] Deck origin is not assigned, using hand root as fallback.");
-            }
-
-            return fallback;
-        }
-
-        private bool RowHasOutgoing(RectTransform rowRoot)
-        {
-            if (rowRoot == null || _outgoingStandard.Count == 0)
-            {
-                return false;
-            }
-
-            foreach (var viewModel in _outgoingStandard)
-            {
-                if (viewModel == null)
-                {
-                    continue;
-                }
-
-                if (_standardViews.TryGetValue(viewModel, out var view) &&
-                    view != null &&
-                    view.transform.parent == rowRoot)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
         private void ForceRebuildLayout()
         {
             if (_rowsRoot == null)
@@ -887,68 +1133,14 @@ namespace Features.PlayerHandSystemImpl.View
             LayoutRebuilder.ForceRebuildLayoutImmediate(_rowsRoot);
         }
 
-        private RectTransform ResolveOpponentHandAnchor()
-        {
-            if (_opponentHandAnchor != null)
-            {
-                return _opponentHandAnchor;
-            }
-
-            if (_cachedOpponentAnchor != null)
-            {
-                return _cachedOpponentAnchor;
-            }
-
-            var animator = _cardTransferAnimator;
-            if (animator == null)
-            {
-                animator = FindObjectOfType<CardTransferAnimator>();
-            }
-
-            _cachedOpponentAnchor = animator != null ? animator.OpponentHandAnchor : null;
-            return _cachedOpponentAnchor;
-        }
-
-        private void EnsureActiveViews()
-        {
-            foreach (var entry in _standardViews)
-            {
-                if (entry.Value != null)
-                {
-                    entry.Value.gameObject.SetActive(true);
-                }
-            }
-
-            foreach (var entry in _bonusViews)
-            {
-                if (entry.Value != null)
-                {
-                    entry.Value.gameObject.SetActive(true);
-                }
-            }
-
-            foreach (var row in _rows)
-            {
-                if (row?.Root == null)
-                {
-                    continue;
-                }
-
-                if (row.Root.childCount > 0)
-                {
-                    row.Root.gameObject.SetActive(true);
-                }
-            }
-        }
-
-        private bool IsRankTransferredOut(string rank)
+        private bool IsTransferredRank(string rank)
         {
             if (string.IsNullOrWhiteSpace(rank))
             {
                 return false;
             }
 
-            return _transferOutRanks.Contains(NormalizeRank(rank));
+            return _transferredRanks.Contains(NormalizeRank(rank));
         }
 
         private void ClearTransferredRank(string rank)
@@ -958,155 +1150,228 @@ namespace Features.PlayerHandSystemImpl.View
                 return;
             }
 
-            _transferOutRanks.Remove(NormalizeRank(rank));
+            _transferredRanks.Remove(NormalizeRank(rank));
         }
 
-        private async UniTask WaitForTransferOutAsync(string rank)
+        private bool IsTransferOutInProgress(string rank)
         {
             if (string.IsNullOrWhiteSpace(rank))
             {
-                return;
+                return false;
             }
 
+            CleanupTransferOutReleaseFlags();
+            CleanupRemovalStartGraceFlags();
             var rankKey = NormalizeRank(rank);
-            UniTaskCompletionSource tcs = null;
-            var timeout = Time.realtimeSinceStartup + 0.5f;
-            while (!_pendingTransferOut.TryGetValue(rankKey, out tcs) &&
-                   Time.realtimeSinceStartup < timeout)
-            {
-                await UniTask.Yield(PlayerLoopTiming.Update);
-            }
-
-            if (tcs == null)
-            {
-                return;
-            }
-
-            var transferTask = tcs.Task.Preserve();
-            await UniTask.WhenAny(transferTask, UniTask.Delay(TimeSpan.FromSeconds(2), DelayType.UnscaledDeltaTime));
-            _pendingTransferOut.Remove(rankKey);
-        }
-
-        private bool IsSetCompleteRank(string rank)
-        {
-            if (string.IsNullOrWhiteSpace(rank))
-            {
-                return false;
-            }
-
-            return _pendingSetCompleteRanks.Contains(NormalizeRank(rank));
-        }
-
-        private bool WasSetCompletedRecently(string rank)
-        {
-            if (string.IsNullOrWhiteSpace(rank))
-            {
-                return false;
-            }
-
-            var rankKey = NormalizeRank(rank);
-            if (!_recentSetCompletedAt.TryGetValue(rankKey, out var completedAt))
-            {
-                return false;
-            }
-
-            var now = Time.realtimeSinceStartup;
-            if (now - completedAt <= RecentSetCompleteWindowSeconds)
+            if (_activeTransferOutByRank.TryGetValue(rankKey, out var count) && count > 0)
             {
                 return true;
             }
 
-            _recentSetCompletedAt.Remove(rankKey);
-            return false;
-        }
-
-        private bool ShouldSkipStandardReceive(CardsReceivedEvent evt, string rank)
-        {
-            if (evt.CompletedSet &&
-                !string.IsNullOrWhiteSpace(evt.CompletedSetRank) &&
-                string.Equals(
-                    NormalizeRank(rank),
-                    NormalizeRank(evt.CompletedSetRank),
-                    StringComparison.OrdinalIgnoreCase))
+            if (_transferOutReleaseAt.TryGetValue(rankKey, out var releaseAt))
             {
-                // For the set-closing card event we still want to show receive animation
-                // before set-complete removal starts.
-                return false;
-            }
-
-            return IsSetCompleteRank(rank) || WasSetCompletedRecently(rank);
-        }
-
-        private void RegisterSetCompletionRank(string rank)
-        {
-            var rankKey = NormalizeRank(rank);
-            if (string.IsNullOrWhiteSpace(rankKey))
-            {
-                return;
-            }
-
-            _pendingSetCompleteRanks.Add(rankKey);
-            _recentSetCompletedAt[rankKey] = Time.realtimeSinceStartup;
-        }
-
-        private bool TryGetStandardView(string rank, out RankStackView view)
-        {
-            view = null;
-            var rankKey = NormalizeRank(rank);
-            if (string.IsNullOrWhiteSpace(rankKey))
-            {
-                return false;
-            }
-
-            foreach (var entry in _standardViews)
-            {
-                var viewModel = entry.Key;
-                var candidateView = entry.Value;
-                if (viewModel == null || candidateView == null)
-                {
-                    continue;
-                }
-
-                if (!string.Equals(viewModel.Rank, rankKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                view = candidateView;
-                return true;
+                return Time.unscaledTime < releaseAt;
             }
 
             return false;
         }
 
-        private async UniTask WaitForSetCompleteAsync(string rankKey)
-        {
-            if (string.IsNullOrWhiteSpace(rankKey))
-            {
-                return;
-            }
-
-            var elapsed = 0f;
-            while (elapsed < 0.5f)
-            {
-                if (IsSetCompleteRank(rankKey))
-                {
-                    return;
-                }
-
-                await UniTask.Delay(TimeSpan.FromMilliseconds(50), DelayType.UnscaledDeltaTime);
-                elapsed += 0.05f;
-            }
-        }
-
-        private void ClearSetCompleteRank(string rank)
+        private void ClearTransferOutInProgress(string rank)
         {
             if (string.IsNullOrWhiteSpace(rank))
             {
                 return;
             }
 
-            _pendingSetCompleteRanks.Remove(NormalizeRank(rank));
+            var rankKey = NormalizeRank(rank);
+            _activeTransferOutByRank.Remove(rankKey);
+            _transferOutReleaseAt.Remove(rankKey);
+            ClearRemovalStartGrace(rankKey);
+        }
+
+        private void CleanupTransferOutReleaseFlags()
+        {
+            if (_transferOutReleaseAt.Count == 0)
+            {
+                return;
+            }
+
+            var now = Time.unscaledTime;
+            var expired = _transferOutReleaseAt
+                .Where(pair => now >= pair.Value)
+                .Select(pair => pair.Key)
+                .ToList();
+            foreach (var rank in expired)
+            {
+                _transferOutReleaseAt.Remove(rank);
+            }
+        }
+
+        private bool ShouldWaitTransferOutStart(string rank)
+        {
+            if (string.IsNullOrWhiteSpace(rank))
+            {
+                return false;
+            }
+
+            CleanupRemovalStartGraceFlags();
+
+            var rankKey = NormalizeRank(rank);
+            if (IsTransferOutInProgress(rankKey) || IsTransferredRank(rankKey) || IsPendingSetCompletion(rankKey))
+            {
+                ClearRemovalStartGrace(rankKey);
+                return false;
+            }
+
+            if (!_removalStartGraceUntil.TryGetValue(rankKey, out var graceUntil))
+            {
+                graceUntil = Time.unscaledTime + RemovalStartGraceSeconds;
+                _removalStartGraceUntil[rankKey] = graceUntil;
+            }
+
+            if (Time.unscaledTime < graceUntil)
+            {
+                return true;
+            }
+
+            ClearRemovalStartGrace(rankKey);
+            return false;
+        }
+
+        private void ClearRemovalStartGrace(string rank)
+        {
+            if (string.IsNullOrWhiteSpace(rank))
+            {
+                return;
+            }
+
+            var rankKey = NormalizeRank(rank);
+            _removalStartGraceUntil.Remove(rankKey);
+            _removalStartGracePending.Remove(rankKey);
+        }
+
+        private void CleanupRemovalStartGraceFlags()
+        {
+            if (_removalStartGraceUntil.Count == 0)
+            {
+                return;
+            }
+
+            var now = Time.unscaledTime;
+            var expired = _removalStartGraceUntil
+                .Where(pair => now >= pair.Value)
+                .Select(pair => pair.Key)
+                .ToList();
+            foreach (var rank in expired)
+            {
+                _removalStartGraceUntil.Remove(rank);
+                _removalStartGracePending.Remove(rank);
+            }
+        }
+
+        private bool IsLayoutLocked()
+        {
+            CleanupTransferOutReleaseFlags();
+            CleanupRemovalStartGraceFlags();
+            if (_removingStandard.Count > 0 ||
+                _waitingStandardAnimation.Count > 0 ||
+                _activeTransferOutByRank.Count > 0 ||
+                _transferOutReleaseAt.Count > 0 ||
+                _removalStartGracePending.Count > 0 ||
+                _pendingSetCompletionRanks.Count > 0)
+            {
+                return true;
+            }
+
+            foreach (var view in _standardViews.Values)
+            {
+                if (view != null && view.HasActiveAnimations)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsPendingSetCompletion(string rank)
+        {
+            if (string.IsNullOrWhiteSpace(rank))
+            {
+                return false;
+            }
+
+            return _pendingSetCompletionRanks.Contains(NormalizeRank(rank));
+        }
+
+        private void MarkPendingSetCompletion(string rank)
+        {
+            if (string.IsNullOrWhiteSpace(rank))
+            {
+                return;
+            }
+
+            _pendingSetCompletionRanks.Add(NormalizeRank(rank));
+        }
+
+        private void ClearPendingSetCompletion(string rank)
+        {
+            if (string.IsNullOrWhiteSpace(rank))
+            {
+                return;
+            }
+
+            _pendingSetCompletionRanks.Remove(NormalizeRank(rank));
+        }
+
+        public void MarkRankTransferredOut(string rank)
+        {
+            if (string.IsNullOrWhiteSpace(rank))
+            {
+                return;
+            }
+
+            var rankKey = NormalizeRank(rank);
+            _transferredRanks.Add(rankKey);
+            _transferOutReleaseAt.Remove(rankKey);
+            ClearRemovalStartGrace(rankKey);
+            if (_activeTransferOutByRank.TryGetValue(rankKey, out var count))
+            {
+                _activeTransferOutByRank[rankKey] = count + 1;
+            }
+            else
+            {
+                _activeTransferOutByRank[rankKey] = 1;
+            }
+        }
+
+        public void CompleteRankTransfer(string rank)
+        {
+            if (string.IsNullOrWhiteSpace(rank))
+            {
+                return;
+            }
+
+            var rankKey = NormalizeRank(rank);
+            if (_activeTransferOutByRank.TryGetValue(rankKey, out var count))
+            {
+                count--;
+                if (count > 0)
+                {
+                    _activeTransferOutByRank[rankKey] = count;
+                }
+                else
+                {
+                    _activeTransferOutByRank.Remove(rankKey);
+                    _transferOutReleaseAt[rankKey] = Time.unscaledTime + TransferOutReleaseDelaySeconds;
+                }
+            }
+            else
+            {
+                _transferOutReleaseAt[rankKey] = Time.unscaledTime + TransferOutReleaseDelaySeconds;
+            }
+
+            RenderLayout();
         }
 
         private static string NormalizeRank(string rank)

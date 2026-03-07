@@ -38,6 +38,8 @@ namespace Features.PlayerHandSystemImpl.Rules
             _presenter.IsActive
                 .Subscribe(_ => EnsureHandSubscription())
                 .AddTo(_subscriptions);
+
+            EnsureHandSubscription();
         }
 
         public void Dispose()

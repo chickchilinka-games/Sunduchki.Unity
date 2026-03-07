@@ -7,6 +7,7 @@ using Features.AppLifecycle.States.Home;
 using Features.LobbyImpl.View;
 using Features.WindowSystemImpl.Templates;
 using ICVR.Window;
+using Modules.Lobby.Data;
 using Modules.SignalR.Config;
 using Modules.Lobby.Services;
 using R3;
@@ -37,22 +38,48 @@ namespace Features.AppLifecycle.States.Lobby
         public override async UniTask<StateTransitionInfo> Execute(CancellationToken token)
         {
             await ConnectLobbyAsync(token);
-            if (_lobbyService.State.CurrentValue.Started)
+            if (IsGameReady())
                 return Transition.GoTo<GameState>();
-            
-            var exitTask = _lobbyFlowService.ExitRequested.FirstAsync(token).AsUniTask();
-            var startedTask = _lobbyService.GameStarted.FirstAsync(token).AsUniTask();
-            
+
+            var exitRequested = false;
+            using var exitSubscription = _lobbyFlowService.ExitRequested.Subscribe(_ => exitRequested = true);
+
             await _windowSystem.ShowWindowAsync<LobbyContent>(nameof(BlockerWindowTemplate));
-
-            var (completed, _, _) = await UniTask.WhenAny(exitTask, startedTask);
-
-            if (completed == 0)
+            if (IsGameReady())
             {
-                await ExitLobbyAsync(token);
-                return Transition.GoTo<HomeState>();
+                await _windowSystem.CloseWindowsWithContentAsync<LobbyContent>();
+                return Transition.GoTo<GameState>();
             }
 
+            while (true)
+            {
+                var readyTask = UniTask.WaitUntil(IsGameReady, cancellationToken: token);
+                var exitTask = UniTask.WaitUntil(() => exitRequested, cancellationToken: token);
+                var retryDelayTask = UniTask.Delay(TimeSpan.FromSeconds(1), cancellationToken: token);
+
+                var (winner, _, _, _) = await UniTask.WhenAny(
+                    WaitSignalAsync(exitTask, 0),
+                    WaitSignalAsync(readyTask, 1),
+                    WaitSignalAsync(retryDelayTask, 2));
+
+                if (winner == 0)
+                {
+                    await ExitLobbyAsync(token);
+                    return Transition.GoTo<HomeState>();
+                }
+
+                if (winner == 1)
+                {
+                    break;
+                }
+
+                if (!_lobbyService.IsConnected)
+                {
+                    await ConnectLobbyAsync(token);
+                }
+            }
+
+            await _windowSystem.CloseWindowsWithContentAsync<LobbyContent>();
             return Transition.GoTo<GameState>();
         }
 
@@ -84,6 +111,23 @@ namespace Features.AppLifecycle.States.Lobby
         {
             await _lobbyService.DisconnectAsync(token);
             await _windowSystem.CloseWindowsWithContentAsync<LobbyContent>();
+        }
+
+        private bool IsGameStarted()
+        {
+            var state = _lobbyService.State.CurrentValue;
+            return state.Started || state.Status == LobbyStatus.Started;
+        }
+
+        private bool IsGameReady()
+        {
+            return IsGameStarted() && _lobbyService.IsConnected;
+        }
+
+        private static async UniTask<int> WaitSignalAsync(UniTask task, int signal)
+        {
+            await task;
+            return signal;
         }
 
     }

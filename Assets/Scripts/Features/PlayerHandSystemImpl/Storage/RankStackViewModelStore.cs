@@ -16,8 +16,6 @@ namespace Features.PlayerHandSystemImpl.Storage
         private readonly ObservableList<RankStackViewModel> _items = new();
         private readonly Dictionary<string, RankStackViewModel> _byRank =
             new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, DateTime> _suppressedUntilByRank =
-            new(StringComparer.OrdinalIgnoreCase);
         private readonly Subject<Unit> _changed = new();
 
         public RankStackViewModelStore(IRankStackViewModelFactory factory)
@@ -43,16 +41,10 @@ namespace Features.PlayerHandSystemImpl.Storage
         {
             var incoming = cards ?? Array.Empty<StandardCardData>();
             var seenRanks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            PruneExpiredSuppressions();
 
             foreach (var group in incoming.GroupBy(card => NormalizeRank(card.Rank)))
             {
                 var rankKey = group.Key;
-                if (IsSuppressed(rankKey))
-                {
-                    continue;
-                }
-
                 var suits = group.Select(card => NormalizeSuit(card.Suit)).ToArray();
 
                 if (!_byRank.TryGetValue(rankKey, out var viewModel))
@@ -80,22 +72,6 @@ namespace Features.PlayerHandSystemImpl.Storage
             }
 
             _changed.OnNext(Unit.Default);
-        }
-
-        public void SuppressRank(string rank, TimeSpan duration)
-        {
-            if (string.IsNullOrWhiteSpace(rank))
-            {
-                return;
-            }
-
-            if (duration <= TimeSpan.Zero)
-            {
-                return;
-            }
-
-            var rankKey = NormalizeRank(rank);
-            _suppressedUntilByRank[rankKey] = DateTime.UtcNow + duration;
         }
 
         public bool Remove(string rank, out RankStackViewModel removed)
@@ -127,7 +103,6 @@ namespace Features.PlayerHandSystemImpl.Storage
 
             _items.Clear();
             _byRank.Clear();
-            _suppressedUntilByRank.Clear();
             _changed.OnNext(Unit.Default);
         }
 
@@ -151,38 +126,5 @@ namespace Features.PlayerHandSystemImpl.Storage
                 : suit.Trim().ToLowerInvariant();
         }
 
-        private bool IsSuppressed(string rankKey)
-        {
-            if (!_suppressedUntilByRank.TryGetValue(rankKey, out var until))
-            {
-                return false;
-            }
-
-            if (until > DateTime.UtcNow)
-            {
-                return true;
-            }
-
-            _suppressedUntilByRank.Remove(rankKey);
-            return false;
-        }
-
-        private void PruneExpiredSuppressions()
-        {
-            if (_suppressedUntilByRank.Count == 0)
-            {
-                return;
-            }
-
-            var now = DateTime.UtcNow;
-            var expired = _suppressedUntilByRank
-                .Where(pair => pair.Value <= now)
-                .Select(pair => pair.Key)
-                .ToList();
-            foreach (var key in expired)
-            {
-                _suppressedUntilByRank.Remove(key);
-            }
-        }
     }
 }

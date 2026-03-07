@@ -5,58 +5,47 @@ using Modules.BonusSystem.Interfaces;
 using Modules.Lobby.Data;
 using Modules.Lobby.Interfaces;
 using Modules.SignalR;
-using Modules.SignalR.Config;
 using UnityEngine;
 
 namespace Modules.BonusSystem.Services
 {
     internal class SignalRBonusActionClient : IBonusActionClient, ILobbyConnectionHandler, IDisposable
     {
-        private readonly ISignalRConnectionFactory _connectionFactory;
-        private readonly IGameHubConfigProvider _configProvider;
-        private ISignalRConnection _connection;
+        private readonly ISharedGameHubConnection _sharedHubConnection;
         private string _gameId = string.Empty;
         private string _playerId = string.Empty;
+        private bool _connected;
 
-        public SignalRBonusActionClient(
-            ISignalRConnectionFactory connectionFactory,
-            IGameHubConfigProvider configProvider)
+        public SignalRBonusActionClient(ISharedGameHubConnection sharedHubConnection)
         {
-            _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
-            _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+            _sharedHubConnection = sharedHubConnection ?? throw new ArgumentNullException(nameof(sharedHubConnection));
         }
 
-        public async UniTask ConnectAsync(LobbySession session, CancellationToken cancellationToken = default)
+        public UniTask ConnectAsync(LobbySession session, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(session.GameId) || string.IsNullOrWhiteSpace(session.PlayerId))
             {
                 Debug.LogWarning("[BonusSystem] Missing lobby identifiers, bonus tracking skipped.");
-                return;
+                return UniTask.CompletedTask;
             }
 
-            await DisconnectCoreAsync();
-
-            var connection = _connectionFactory.Create(_configProvider.GetHubUri(), _configProvider.GetAccessToken());
-            await connection.StartAsync(cancellationToken);
-            await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
-            {
-                GameId = session.GameId,
-                PlayerId = session.PlayerId
-            }, cancellationToken);
-
-            _connection = connection;
+            _connected = true;
             _gameId = session.GameId ?? string.Empty;
             _playerId = session.PlayerId ?? string.Empty;
+            return UniTask.CompletedTask;
         }
 
-        public async UniTask DisconnectAsync()
+        public UniTask DisconnectAsync()
         {
-            await DisconnectCoreAsync();
+            _connected = false;
+            _gameId = string.Empty;
+            _playerId = string.Empty;
+            return UniTask.CompletedTask;
         }
 
         public async UniTask UseBonusAsync(string bonusType, string targetPlayerId, CancellationToken cancellationToken = default)
         {
-            if (_connection == null)
+            if (!_connected)
             {
                 Debug.LogError("[BonusSystem] Attempted to use bonus without an active SignalR connection.");
                 throw new InvalidOperationException("Bonus SignalR connection is not established.");
@@ -74,7 +63,7 @@ namespace Modules.BonusSystem.Services
                 return;
             }
 
-            await _connection.InvokeAsync("UseBonus", new UseBonusRequestDto
+            await _sharedHubConnection.InvokeAsync("UseBonus", new UseBonusRequestDto
             {
                 GameId = _gameId,
                 PlayerId = _playerId,
@@ -85,34 +74,9 @@ namespace Modules.BonusSystem.Services
 
         public void Dispose()
         {
-            DisconnectCoreAsync().Forget();
-        }
-
-        private async UniTask DisconnectCoreAsync()
-        {
-            var connection = Interlocked.Exchange(ref _connection, null);
-            if (connection == null)
-            {
-                return;
-            }
-
-            try
-            {
-                await connection.StopAsync();
-            }
-            finally
-            {
-                connection.Dispose();
-            }
-
+            _connected = false;
             _gameId = string.Empty;
             _playerId = string.Empty;
-        }
-
-        private sealed class JoinGameRequestDto
-        {
-            public string GameId { get; set; }
-            public string PlayerId { get; set; }
         }
 
         private sealed class UseBonusRequestDto

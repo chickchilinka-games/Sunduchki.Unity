@@ -7,7 +7,6 @@ using Modules.DefenseDecisionSystem.Interfaces;
 using Modules.Lobby.Data;
 using Modules.Lobby.Interfaces;
 using Modules.SignalR;
-using Modules.SignalR.Config;
 using R3;
 using UnityEngine;
 
@@ -15,48 +14,38 @@ namespace Modules.DefenseDecisionSystem.Services
 {
     internal class SignalRDefenseDecisionClient : IDefenseDecisionClient, IDefenseDecisionEventSource, ILobbyConnectionHandler, IDisposable
     {
-        private readonly ISignalRConnectionFactory _connectionFactory;
-        private readonly IGameHubConfigProvider _configProvider;
+        private readonly ISharedGameHubConnection _sharedHubConnection;
         private readonly Subject<DefenseDecisionRequestedEvent> _requested = new();
-        private ISignalRConnection _connection;
+        private readonly List<IDisposable> _handlerSubscriptions = new();
+
+        private bool _connected;
         private string _gameId = string.Empty;
 
-        public SignalRDefenseDecisionClient(
-            ISignalRConnectionFactory connectionFactory,
-            IGameHubConfigProvider configProvider)
+        public SignalRDefenseDecisionClient(ISharedGameHubConnection sharedHubConnection)
         {
-            _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
-            _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+            _sharedHubConnection = sharedHubConnection ?? throw new ArgumentNullException(nameof(sharedHubConnection));
         }
 
         public Observable<DefenseDecisionRequestedEvent> Requested => _requested;
 
-        public async UniTask ConnectAsync(LobbySession session, CancellationToken cancellationToken = default)
+        public UniTask ConnectAsync(LobbySession session, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(session.GameId) || string.IsNullOrWhiteSpace(session.PlayerId))
             {
                 Debug.LogWarning("[DefenseDecision] Cannot track defense decisions without lobby identifiers.");
-                return;
+                return UniTask.CompletedTask;
             }
 
-            await DisconnectCoreAsync();
-
-            var connection = _connectionFactory.Create(_configProvider.GetHubUri(), _configProvider.GetAccessToken());
-            RegisterHandlers(connection);
-            await connection.StartAsync(cancellationToken);
-            await connection.InvokeAsync("JoinGame", new JoinGameRequestDto
-            {
-                GameId = session.GameId,
-                PlayerId = session.PlayerId
-            }, cancellationToken);
-
-            _connection = connection;
+            ClearHandlers();
             _gameId = session.GameId ?? string.Empty;
+            RegisterHandlers();
+            _connected = true;
+            return UniTask.CompletedTask;
         }
 
         public async UniTask SubmitDecisionAsync(string targetPlayerId, bool useBonus, string bonusType, CancellationToken cancellationToken = default)
         {
-            if (_connection == null)
+            if (!_connected)
             {
                 Debug.LogWarning("[DefenseDecision] SubmitDecisionAsync called without an active connection.");
                 return;
@@ -68,7 +57,7 @@ namespace Modules.DefenseDecisionSystem.Services
                 return;
             }
 
-            await _connection.InvokeAsync("SubmitDefenseDecision", new DefenseDecisionRequestDto
+            await _sharedHubConnection.InvokeAsync("SubmitDefenseDecision", new DefenseDecisionRequestDto
             {
                 GameId = _gameId,
                 TargetId = targetPlayerId,
@@ -77,19 +66,25 @@ namespace Modules.DefenseDecisionSystem.Services
             }, cancellationToken);
         }
 
-        public async UniTask DisconnectAsync()
+        public UniTask DisconnectAsync()
         {
-            await DisconnectCoreAsync();
+            ClearHandlers();
+            _connected = false;
+            _gameId = string.Empty;
+            return UniTask.CompletedTask;
         }
 
         public void Dispose()
         {
-            DisconnectCoreAsync().Forget();
+            ClearHandlers();
+            _connected = false;
+            _gameId = string.Empty;
         }
 
-        private void RegisterHandlers(ISignalRConnection connection)
+        private void RegisterHandlers()
         {
-            connection.On<DefenseDecisionRequestedDto>("DefenseDecisionRequested", payload =>
+            ClearHandlers();
+            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<DefenseDecisionRequestedDto>("DefenseDecisionRequested", payload =>
             {
                 if (payload == null)
                 {
@@ -101,33 +96,17 @@ namespace Modules.DefenseDecisionSystem.Services
                     payload.TargetPlayerId,
                     payload.Rank,
                     payload.DefenseOptions ?? new List<string>()));
-            });
+            }));
         }
 
-        private async UniTask DisconnectCoreAsync()
+        private void ClearHandlers()
         {
-            var connection = Interlocked.Exchange(ref _connection, null);
-            if (connection == null)
+            foreach (var subscription in _handlerSubscriptions)
             {
-                return;
+                subscription?.Dispose();
             }
 
-            try
-            {
-                await connection.StopAsync();
-            }
-            finally
-            {
-                connection.Dispose();
-            }
-
-            _gameId = string.Empty;
-        }
-
-        private sealed class JoinGameRequestDto
-        {
-            public string GameId { get; set; }
-            public string PlayerId { get; set; }
+            _handlerSubscriptions.Clear();
         }
 
         private sealed class DefenseDecisionRequestDto
@@ -147,4 +126,3 @@ namespace Modules.DefenseDecisionSystem.Services
         }
     }
 }
-

@@ -1,5 +1,4 @@
 using System;
-using Cysharp.Threading.Tasks;
 using Modules.Lobby.Data;
 using Modules.Lobby.Services;
 using Modules.PlayerHand.Interfaces;
@@ -85,7 +84,7 @@ namespace Modules.PlayerHand.Rules
 
                     if (evt.CompletedSet && !string.IsNullOrWhiteSpace(evt.CompletedSetRank))
                     {
-                        ApplySetCompletedDeferred(playerId, evt.CompletedSetRank, evt.EventSeq).Forget();
+                        _internalService.ApplySetCompleted(playerId, evt.CompletedSetRank, evt.EventSeq);
                     }
                 })
                 .AddTo(_subscriptions);
@@ -160,13 +159,6 @@ namespace Modules.PlayerHand.Rules
             }
 
             return playerId;
-        }
-
-        private async UniTaskVoid ApplySetCompletedDeferred(string playerId, string rank, long eventSeq)
-        {
-            // Let CardsReceived presentation enqueue receive animations first.
-            await UniTask.Yield(PlayerLoopTiming.PostLateUpdate);
-            _internalService.ApplySetCompleted(playerId, rank, eventSeq);
         }
     }
 }

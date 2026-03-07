@@ -102,7 +102,8 @@ namespace Modules.Lobby.Providers
                 dto.PlayerId,
                 players.ToArray(),
                 dto.DeckCount,
-                dto.TotalCards);
+                dto.TotalCards,
+                dto.Started);
         }
 
         public async UniTask<MatchmakingResult> SearchMatchAsync(MatchmakingOptions options, CancellationToken cancellationToken = default)
@@ -154,7 +155,8 @@ namespace Modules.Lobby.Providers
                 dto.PlayerId,
                 players.ToArray(),
                 dto.DeckCount,
-                dto.TotalCards);
+                dto.TotalCards,
+                dto.Started);
         }
 
         public async UniTask StartGameAsync(string gameId, CancellationToken cancellationToken = default)
@@ -253,6 +255,9 @@ namespace Modules.Lobby.Providers
 
             [JsonProperty("totalCards")]
             public int TotalCards { get; set; }
+
+            [JsonProperty("started")]
+            public bool Started { get; set; }
         }
 
         private sealed class PlayerDto
@@ -295,6 +300,9 @@ namespace Modules.Lobby.Providers
 
             [JsonProperty("totalCards")]
             public int TotalCards { get; set; }
+
+            [JsonProperty("started")]
+            public bool Started { get; set; }
         }
     }
 }

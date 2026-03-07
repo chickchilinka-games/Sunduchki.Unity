@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Modules.Lobby.Data;
@@ -26,7 +27,10 @@ namespace Modules.Lobby.Rules
         public LobbyConnectionRule(LobbyService lobbyService, List<ILobbyConnectionHandler> handlers)
         {
             _lobbyService = lobbyService ?? throw new ArgumentNullException(nameof(lobbyService));
-            _handlers = handlers ?? new List<ILobbyConnectionHandler>();
+            _handlers = (handlers ?? new List<ILobbyConnectionHandler>())
+                .OrderBy(GetHandlerPriority)
+                .ThenBy(handler => handler?.GetType().FullName, StringComparer.Ordinal)
+                .ToList();
         }
 
         public void Initialize()
@@ -38,9 +42,9 @@ namespace Modules.Lobby.Rules
 
         private void OnLobbyStateChanged(LobbyState state)
         {
-            // During active match we keep module connections stable even if lobby status
-            // transiently flips (e.g. Waiting/Connecting) while Started flag is true.
-            if (state.Started || state.Status == LobbyStatus.Started)
+            // Keep module handlers connected as soon as lobby transport is established,
+            // so they are subscribed before game-start bursts (cards/deck/turn events).
+            if (ShouldBeConnected(state))
             {
                 if (ShouldConnect())
                 {
@@ -56,10 +60,39 @@ namespace Modules.Lobby.Rules
                 return;
             }
 
-            if (state.Status == LobbyStatus.Ended || state.Status == LobbyStatus.Idle)
+            if (!ShouldBeConnected(state))
             {
                 DisconnectAll().Forget();
             }
+        }
+
+        private static bool ShouldBeConnected(LobbyState state)
+        {
+            if (state.Started || state.Status == LobbyStatus.Started)
+            {
+                return true;
+            }
+
+            return state.Status == LobbyStatus.Connecting ||
+                   state.Status == LobbyStatus.Waiting ||
+                   state.Status == LobbyStatus.Starting;
+        }
+
+        private static int GetHandlerPriority(ILobbyConnectionHandler handler)
+        {
+            var typeName = handler?.GetType().Name ?? string.Empty;
+            if (typeName.IndexOf("PlayerHand", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return 0;
+            }
+
+            if (typeName.IndexOf("Deck", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                typeName.IndexOf("Turn", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return 1;
+            }
+
+            return 10;
         }
 
         private bool ShouldConnect()
@@ -163,7 +196,7 @@ namespace Modules.Lobby.Rules
                 {
                     await UniTask.Delay(TimeSpan.FromSeconds(1));
                     var state = _lobbyService.State.CurrentValue;
-                    if (!(state.Started || state.Status == LobbyStatus.Started))
+                    if (!ShouldBeConnected(state))
                     {
                         return;
                     }
