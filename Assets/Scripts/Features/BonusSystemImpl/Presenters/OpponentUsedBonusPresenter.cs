@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using Modules.BonusSystem.Config;
+using Modules.BonusSystem.Data;
+using Modules.BonusSystem.Interfaces;
 using Modules.CardRequestSystem.Data;
 using Modules.CardRequestSystem.Services;
 using Modules.Lobby.Services;
-using Modules.PlayerHand.Data;
-using Modules.PlayerHand.Services;
 using Modules.TurnSystem.Services;
 using R3;
 using Zenject;
@@ -25,7 +25,7 @@ namespace Features.BonusSystemImpl.Presenters
         private const float InstantHideDelay = 1.2f;
         private const float DefenseHideDelay = 1.2f;
 
-        private readonly PlayerHandService _handService;
+        private readonly IBonusUsageEventSource _bonusUsageEventSource;
         private readonly LobbyService _lobbyService;
         private readonly TurnSequenceService _turnService;
         private readonly CardRequestService _cardRequestService;
@@ -42,13 +42,13 @@ namespace Features.BonusSystemImpl.Presenters
         private int _stateRevision;
 
         public OpponentUsedBonusPresenter(
-            PlayerHandService handService,
+            IBonusUsageEventSource bonusUsageEventSource,
             LobbyService lobbyService,
             TurnSequenceService turnService,
             CardRequestService cardRequestService,
             IBonusCardRulesProvider rulesProvider)
         {
-            _handService = handService ?? throw new ArgumentNullException(nameof(handService));
+            _bonusUsageEventSource = bonusUsageEventSource ?? throw new ArgumentNullException(nameof(bonusUsageEventSource));
             _lobbyService = lobbyService ?? throw new ArgumentNullException(nameof(lobbyService));
             _turnService = turnService ?? throw new ArgumentNullException(nameof(turnService));
             _cardRequestService = cardRequestService ?? throw new ArgumentNullException(nameof(cardRequestService));
@@ -61,7 +61,7 @@ namespace Features.BonusSystemImpl.Presenters
         {
             CacheRules();
 
-            _handService.BonusUsed
+            _bonusUsageEventSource.BonusUsed
                 .Subscribe(OnBonusUsed)
                 .AddTo(_subscriptions);
 
@@ -101,7 +101,7 @@ namespace Features.BonusSystemImpl.Presenters
             }
         }
 
-        private void OnBonusUsed(BonusCardUsageEvent payload)
+        private void OnBonusUsed(BonusUsedEvent payload)
         {
             if (string.IsNullOrWhiteSpace(payload.BonusType))
             {

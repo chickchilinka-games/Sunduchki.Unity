@@ -14,12 +14,13 @@ namespace Features.PlayerHandSystemImpl.Presentation.ViewModel
         private readonly ReactiveProperty<bool> _canPress;
         private readonly Dictionary<string, StandardCardItemViewModel> _cardsBySuit = new(StringComparer.OrdinalIgnoreCase);
         private readonly IPlayerHandCommands _commands;
-        private readonly Subject<RankCardsReceivedEvent> _cardsReceived = new();
+        private readonly Subject<Unit> _receiveQueued = new();
+        private readonly Queue<RankCardsReceivedEvent> _receiveQueue = new();
 
         public string Rank { get; }
         public ReadOnlyReactiveProperty<IReadOnlyList<StandardCardItemViewModel>> Cards => _cards;
         public ReadOnlyReactiveProperty<bool> CanPress => _canPress;
-        public Observable<RankCardsReceivedEvent> CardsReceived => _cardsReceived;
+        public Observable<Unit> ReceiveQueued => _receiveQueued;
 
         public RankStackViewModel(string rank, IEnumerable<string> suits)
             : this(rank, suits, NullPlayerHandCommands.Instance)
@@ -110,16 +111,30 @@ namespace Features.PlayerHandSystemImpl.Presentation.ViewModel
         {
             _cards?.Dispose();
             _canPress?.Dispose();
-            _cardsReceived?.Dispose();
+            _receiveQueued?.Dispose();
         }
 
         public void NotifyCardsReceived(string source, IReadOnlyList<string> suits, long eventSeq, bool completedSet)
         {
-            _cardsReceived.OnNext(new RankCardsReceivedEvent(
+            var payload = new RankCardsReceivedEvent(
                 source,
                 suits ?? Array.Empty<string>(),
                 eventSeq,
-                completedSet));
+                completedSet);
+            _receiveQueue.Enqueue(payload);
+            _receiveQueued.OnNext(Unit.Default);
+        }
+
+        public bool TryDequeueCardsReceived(out RankCardsReceivedEvent payload)
+        {
+            if (_receiveQueue.Count == 0)
+            {
+                payload = default;
+                return false;
+            }
+
+            payload = _receiveQueue.Dequeue();
+            return true;
         }
 
         private static string NormalizeRank(string rank)

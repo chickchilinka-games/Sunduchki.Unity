@@ -19,6 +19,7 @@ namespace Modules.CardRequestSystem.Services
         private readonly Subject<CardRequestTransferredEvent> _transferred = new();
         private readonly Subject<CardRequestDeniedEvent> _denied = new();
         private readonly List<IDisposable> _handlerSubscriptions = new();
+        private string _localPlayerId = string.Empty;
 
         public SignalRCardRequestClient(ISharedGameHubConnection sharedHubConnection)
         {
@@ -37,6 +38,7 @@ namespace Modules.CardRequestSystem.Services
                 return UniTask.CompletedTask;
             }
 
+            _localPlayerId = session.PlayerId ?? string.Empty;
             ClearHandlers();
             RegisterHandlers();
             return UniTask.CompletedTask;
@@ -45,6 +47,7 @@ namespace Modules.CardRequestSystem.Services
         public UniTask DisconnectAsync()
         {
             ClearHandlers();
+            _localPlayerId = string.Empty;
             return UniTask.CompletedTask;
         }
 
@@ -69,16 +72,37 @@ namespace Modules.CardRequestSystem.Services
                     payload.Rank));
             }));
 
-            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<CardsTransferredDto>("CardsTransferred", payload =>
+            _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<HandDeltaDto>("HandDelta", payload =>
             {
                 if (payload == null)
                 {
                     return;
                 }
 
+                if (string.Equals(payload.Destination, "chest", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(payload.Source, "deck", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                var sourcePlayerId = payload.Source ?? string.Empty;
+                var destinationPlayerId = payload.Destination ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(sourcePlayerId) || string.IsNullOrWhiteSpace(destinationPlayerId))
+                {
+                    return;
+                }
+
+                var localPlayerId = _localPlayerId;
+                if (!string.IsNullOrWhiteSpace(localPlayerId) &&
+                    !string.Equals(sourcePlayerId, localPlayerId, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(destinationPlayerId, localPlayerId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
                 var mapped = new List<CardTransferCardData>();
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var cards = payload.Cards ?? Array.Empty<TransferCardDto>();
+                var cards = ResolveTransferCards(payload);
                 foreach (var card in cards)
                 {
                     if (string.IsNullOrWhiteSpace(card?.Rank) || string.IsNullOrWhiteSpace(card?.Suit))
@@ -99,8 +123,9 @@ namespace Modules.CardRequestSystem.Services
                 }
 
                 _transferred.OnNext(new CardRequestTransferredEvent(
-                    payload.PlayerId,
-                    payload.Destination,
+                    payload.ActionId ?? string.Empty,
+                    sourcePlayerId,
+                    destinationPlayerId,
                     mapped));
             }));
 
@@ -135,11 +160,36 @@ namespace Modules.CardRequestSystem.Services
             public string Rank { get; set; }
         }
 
-        private sealed class CardsTransferredDto
+        private static IReadOnlyList<TransferCardDto> ResolveTransferCards(HandDeltaDto payload)
         {
+            if (payload == null)
+            {
+                return Array.Empty<TransferCardDto>();
+            }
+
+            var removed = payload.RemovedCards;
+            if (removed != null && removed.Length > 0)
+            {
+                return removed;
+            }
+
+            var added = payload.AddedCards;
+            if (added != null && added.Length > 0)
+            {
+                return added;
+            }
+
+            return Array.Empty<TransferCardDto>();
+        }
+
+        private sealed class HandDeltaDto
+        {
+            public string ActionId { get; set; }
             public string PlayerId { get; set; }
+            public string Source { get; set; }
             public string Destination { get; set; }
-            public TransferCardDto[] Cards { get; set; }
+            public TransferCardDto[] AddedCards { get; set; }
+            public TransferCardDto[] RemovedCards { get; set; }
         }
 
         private sealed class TransferCardDto

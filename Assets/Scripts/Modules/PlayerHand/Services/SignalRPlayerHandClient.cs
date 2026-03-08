@@ -18,6 +18,7 @@ namespace Modules.PlayerHand.Services
         private readonly Subject<PlayerHandSnapshotEvent> _handSnapshot = new();
         private readonly Subject<PlayerHandDeltaEvent> _handDelta = new();
         private readonly List<IDisposable> _handlerSubscriptions = new();
+        private string _localPlayerId = string.Empty;
 
         public SignalRPlayerHandClient(ISharedGameHubConnection sharedHubConnection)
         {
@@ -35,6 +36,7 @@ namespace Modules.PlayerHand.Services
                 return UniTask.CompletedTask;
             }
 
+            _localPlayerId = session.PlayerId ?? string.Empty;
             ClearHandlers();
             RegisterHandlers();
             Debug.Log($"[PlayerHand] Subscribed to hand updates for {session.PlayerId}.");
@@ -44,6 +46,7 @@ namespace Modules.PlayerHand.Services
         public UniTask DisconnectAsync()
         {
             ClearHandlers();
+            _localPlayerId = string.Empty;
             return UniTask.CompletedTask;
         }
 
@@ -63,6 +66,11 @@ namespace Modules.PlayerHand.Services
                     return;
                 }
 
+                if (!IsLocalPayload(payload.PlayerId))
+                {
+                    return;
+                }
+
                 var standardCards = new List<StandardCardData>();
                 var bonusCards = new List<BonusCardData>();
                 MapCards(payload.Cards, standardCards, bonusCards);
@@ -77,6 +85,11 @@ namespace Modules.PlayerHand.Services
             _handlerSubscriptions.Add(_sharedHubConnection.Subscribe<HandDeltaDto>("HandDelta", payload =>
             {
                 if (payload == null)
+                {
+                    return;
+                }
+
+                if (!IsLocalPayload(payload.PlayerId))
                 {
                     return;
                 }
@@ -111,6 +124,17 @@ namespace Modules.PlayerHand.Services
             }
 
             _handlerSubscriptions.Clear();
+        }
+
+        private bool IsLocalPayload(string payloadPlayerId)
+        {
+            var localId = _localPlayerId;
+            if (string.IsNullOrWhiteSpace(localId))
+            {
+                return true;
+            }
+
+            return string.Equals(payloadPlayerId, localId, StringComparison.OrdinalIgnoreCase);
         }
 
         private static void MapCards(

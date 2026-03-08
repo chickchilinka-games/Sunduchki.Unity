@@ -9,7 +9,6 @@ using Features.PlayerHandSystemImpl.Factory;
 using Features.PlayerHandSystemImpl.Presentation.Presenters;
 using Features.PlayerHandSystemImpl.Presentation.Storage;
 using Features.PlayerHandSystemImpl.Presentation.ViewModel;
-using Modules.CardRequestSystem.Data;
 using Modules.PlayerHand.Data;
 using R3;
 using UnityEngine;
@@ -55,7 +54,6 @@ namespace Features.PlayerHandSystemImpl.View
         private RectTransform _cachedOpponentAnchor;
         private bool _warnedMissingDeckOrigin;
         private const float PendingBonusReceiveMaxAgeSeconds = 8f;
-        private const float PendingStandardReceiveMaxAgeSeconds = 8f;
         private const float TransferOutReleaseDelaySeconds = 0.2f;
         private const float RemovalStartGraceSeconds = 0.2f;
         private const int MaxUiMutationsPerPass = 256;
@@ -89,7 +87,7 @@ namespace Features.PlayerHandSystemImpl.View
             _layoutController ??= new HandLayoutController(_maxItemsPerRow, _rowItemSpacing, _rowAlignment);
             _layoutController.SetRoot(_rowsRoot);
             _animationGate ??= new HandAnimationGate(TransferOutReleaseDelaySeconds, RemovalStartGraceSeconds);
-            _receiveBuffer ??= new HandReceiveBuffer(PendingStandardReceiveMaxAgeSeconds, PendingBonusReceiveMaxAgeSeconds);
+            _receiveBuffer ??= new HandReceiveBuffer(PendingBonusReceiveMaxAgeSeconds);
             _renderLoopCts = new CancellationTokenSource();
             _isRenderScheduled = false;
             _isRenderRunning = false;
@@ -116,10 +114,6 @@ namespace Features.PlayerHandSystemImpl.View
 
             _bonusStorage.Changed
                 .Subscribe(_ => RequestLayoutRefresh())
-                .AddTo(_subscriptions);
-
-            _cardRequestPresenter.CardRequested
-                .Subscribe(OnCardRequested)
                 .AddTo(_subscriptions);
 
             _cardRequestPresenter.CardTransferred
@@ -275,22 +269,21 @@ namespace Features.PlayerHandSystemImpl.View
             var activeBonus = new HashSet<BonusCardViewModel>(_bonusPresenter.BonusCards);
 
             BeginOutgoingStandardRemovals(activeStandard);
-            if (IsLayoutLocked())
-            {
-                FlushPendingStandardReceives();
-                FlushPendingBonusReceives();
-                ForceRebuildLayout();
-                return;
-            }
+            var orderedStandard = BuildStandardLayoutOrder(activeStandard);
 
             ResetRows();
             var slotIndex = 0;
 
-            foreach (var viewModel in _presenter.StandardCards)
+            foreach (var viewModel in orderedStandard)
             {
                 var parent = GetRowTransform(slotIndex++);
                 if (!_standardViews.TryGetValue(viewModel, out var view) || view == null)
                 {
+                    if (!activeStandard.Contains(viewModel))
+                    {
+                        continue;
+                    }
+
                     view = CreateStandardView(parent, viewModel);
                     if (view == null)
                     {
@@ -322,7 +315,6 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             RemoveMissingBonusViews(activeBonus);
-            FlushPendingStandardReceives();
             FlushPendingBonusReceives();
             ForceRebuildLayout();
         }
@@ -340,22 +332,6 @@ namespace Features.PlayerHandSystemImpl.View
         private static string NormalizeBonus(string bonusType)
         {
             return string.IsNullOrWhiteSpace(bonusType) ? string.Empty : bonusType.Trim();
-        }
-
-        private static CardRequestEvent SnapshotCardRequestEvent(CardRequestEvent evt)
-        {
-            var cards = evt.Cards != null
-                ? evt.Cards.ToArray()
-                : Array.Empty<CardTransferCardData>();
-
-            return new CardRequestEvent(
-                evt.EventType,
-                evt.AskerId,
-                evt.TargetId,
-                evt.Rank,
-                evt.Count,
-                cards,
-                evt.Timestamp);
         }
 
         private static CardsReceivedEvent SnapshotCardsReceivedEvent(CardsReceivedEvent evt)
@@ -379,3 +355,4 @@ namespace Features.PlayerHandSystemImpl.View
 
     }
 }
+

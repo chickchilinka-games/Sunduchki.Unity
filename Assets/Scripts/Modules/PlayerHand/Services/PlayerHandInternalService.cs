@@ -65,23 +65,25 @@ namespace Modules.PlayerHand.Services
                 RemoveBonusCards(playerId, delta.RemovedBonusCards);
             }
 
+            IReadOnlyList<StandardCardData> actuallyAddedStandardCards = Array.Empty<StandardCardData>();
             if (delta.AddedStandardCards.Count > 0)
             {
-                AddStandardCards(playerId, delta.AddedStandardCards);
+                actuallyAddedStandardCards = AddStandardCards(playerId, delta.AddedStandardCards);
             }
 
+            IReadOnlyList<BonusCardData> actuallyAddedBonusCards = Array.Empty<BonusCardData>();
             if (delta.AddedBonusCards.Count > 0)
             {
-                AddBonusCards(playerId, delta.AddedBonusCards);
+                actuallyAddedBonusCards = AddBonusCards(playerId, delta.AddedBonusCards);
             }
 
-            if (delta.AddedStandardCards.Count > 0 || delta.AddedBonusCards.Count > 0)
+            if (actuallyAddedStandardCards.Count > 0 || actuallyAddedBonusCards.Count > 0)
             {
                 _model.PublishCardsReceived(new CardsReceivedEvent(
                     playerId,
                     delta.Source,
-                    delta.AddedStandardCards,
-                    delta.AddedBonusCards,
+                    actuallyAddedStandardCards,
+                    actuallyAddedBonusCards,
                     delta.EventSeq,
                     delta.CompletedSet,
                     delta.CompletedSetRank));
@@ -100,13 +102,14 @@ namespace Modules.PlayerHand.Services
             _model.ResetAll();
         }
 
-        private void AddStandardCards(string playerId, IReadOnlyList<StandardCardData> cards)
+        private IReadOnlyList<StandardCardData> AddStandardCards(string playerId, IReadOnlyList<StandardCardData> cards)
         {
             if (cards == null || cards.Count == 0)
             {
-                return;
+                return Array.Empty<StandardCardData>();
             }
 
+            var added = new List<StandardCardData>(cards.Count);
             Update(playerId, state =>
             {
                 var list = state.StandardCards.ToList();
@@ -119,10 +122,13 @@ namespace Modules.PlayerHand.Services
 
                     _model.PublishStandardCardDrawn(new StandardCardDrawnEvent(playerId, card));
                     list.Add(card);
+                    added.Add(card);
                 }
 
                 return new PlayerHandState(state.PlayerId, list, state.BonusCards);
             });
+
+            return added;
         }
 
         private void RemoveStandardCards(string playerId, IReadOnlyList<StandardCardData> cards)
@@ -148,13 +154,14 @@ namespace Modules.PlayerHand.Services
             });
         }
 
-        private void AddBonusCards(string playerId, IReadOnlyList<BonusCardData> cards)
+        private IReadOnlyList<BonusCardData> AddBonusCards(string playerId, IReadOnlyList<BonusCardData> cards)
         {
             if (cards == null || cards.Count == 0)
             {
-                return;
+                return Array.Empty<BonusCardData>();
             }
 
+            var added = new List<BonusCardData>(cards.Count);
             Update(playerId, state =>
             {
                 var list = state.BonusCards.ToList();
@@ -162,10 +169,13 @@ namespace Modules.PlayerHand.Services
                 {
                     list.Add(card);
                     _model.PublishBonusCardDrawn(new BonusCardDrawnEvent(playerId, card));
+                    added.Add(card);
                 }
 
                 return new PlayerHandState(state.PlayerId, state.StandardCards, list);
             });
+
+            return added;
         }
 
         private void RemoveBonusCards(string playerId, IReadOnlyList<BonusCardData> cards)
@@ -261,6 +271,11 @@ namespace Modules.PlayerHand.Services
             }
 
             if (eventSeq < lastSeq)
+            {
+                return true;
+            }
+
+            if (eventSeq == lastSeq)
             {
                 return true;
             }

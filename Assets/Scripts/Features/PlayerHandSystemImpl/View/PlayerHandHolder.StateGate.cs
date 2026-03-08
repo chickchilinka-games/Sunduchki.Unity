@@ -32,30 +32,6 @@ namespace Features.PlayerHandSystemImpl.View
             _animationGate?.ClearRemovalStartGrace(rank);
         }
 
-        private bool IsLayoutLocked()
-        {
-            if (_animationGate == null)
-            {
-                return _removingStandard.Count > 0 || _waitingStandardAnimation.Count > 0;
-            }
-
-            if (_removingStandard.Count > 0 ||
-                _waitingStandardAnimation.Count > 0 ||
-                _animationGate.HasBlockingRankState())
-            {
-                return true;
-            }
-
-            foreach (var view in _standardViews.Values)
-            {
-                if (view != null && view.HasActiveAnimations)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
 
         private bool IsPendingSetCompletion(string rank)
         {
@@ -84,3 +60,4 @@ namespace Features.PlayerHandSystemImpl.View
         }
     }
 }
+

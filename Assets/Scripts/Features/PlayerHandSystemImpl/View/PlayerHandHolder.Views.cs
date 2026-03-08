@@ -30,6 +30,40 @@ namespace Features.PlayerHandSystemImpl.View
             }
         }
 
+        private IReadOnlyList<RankStackViewModel> BuildStandardLayoutOrder(IReadOnlyCollection<RankStackViewModel> activeStandard)
+        {
+            var ordered = new List<RankStackViewModel>();
+
+            foreach (var entry in _standardViews)
+            {
+                var viewModel = entry.Key;
+                var view = entry.Value;
+                if (viewModel == null || view == null)
+                {
+                    continue;
+                }
+
+                if (activeStandard.Contains(viewModel) ||
+                    _removingStandard.Contains(viewModel) ||
+                    _waitingStandardAnimation.Contains(viewModel))
+                {
+                    ordered.Add(viewModel);
+                }
+            }
+
+            foreach (var viewModel in _presenter.StandardCards)
+            {
+                if (viewModel == null || ordered.Contains(viewModel))
+                {
+                    continue;
+                }
+
+                ordered.Add(viewModel);
+            }
+
+            return ordered;
+        }
+
         private void ResetRows()
         {
             _layoutController?.ResetRows();
@@ -59,12 +93,6 @@ namespace Features.PlayerHandSystemImpl.View
             view.transform.SetParent(parent, false);
             view.gameObject.SetActive(true);
             view.ConfigureReceiveOrigins(ResolveDeckOrigin, ResolveOpponentHandAnchor);
-            var pendingSuits = GetPendingStandardSuitsForRank(viewModel.Rank);
-            if (pendingSuits.Count > 0)
-            {
-                view.SetPendingReceiveSuits(pendingSuits);
-            }
-
             view.SetCompletionAnimationFinished += OnSetCompletionAnimationFinished;
             view.AnimationsBecameIdle += OnStandardViewAnimationsBecameIdle;
             view.Initialize(viewModel).Forget();
@@ -134,3 +162,4 @@ namespace Features.PlayerHandSystemImpl.View
         }
     }
 }
+

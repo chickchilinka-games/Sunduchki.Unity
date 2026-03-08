@@ -51,6 +51,7 @@ namespace Features.PlayerHandSystemImpl.View
         private bool _hasCompletedSetAnimation;
         private bool _suppressRemovalAnimation;
         private bool _isAnimationRunning;
+        private bool _isDrainingReceiveQueue;
         private int _externalAnimationCount;
         private int _bindingVersion;
         private CancellationTokenSource _bindingsCts;
@@ -118,9 +119,10 @@ namespace Features.PlayerHandSystemImpl.View
                 .Subscribe(SetInteractable)
                 .AddTo(_bindings);
 
-            viewModel.CardsReceived
-                .Subscribe(payload => PlayReceivedBatchAsync(payload).Forget())
+            viewModel.ReceiveQueued
+                .Subscribe(_ => DrainReceiveQueueAsync().Forget())
                 .AddTo(_bindings);
+            DrainReceiveQueueAsync().Forget();
 
             if (_button != null)
             {
@@ -184,25 +186,6 @@ namespace Features.PlayerHandSystemImpl.View
         {
             _deckReceiveOriginProvider = deckReceiveOriginProvider;
             _opponentReceiveOriginProvider = opponentReceiveOriginProvider;
-        }
-
-        public void SetPendingReceiveSuits(IReadOnlyList<string> suits)
-        {
-            if (suits == null || suits.Count == 0)
-            {
-                return;
-            }
-
-            foreach (var suit in suits)
-            {
-                var normalized = NormalizeSuit(suit);
-                if (string.IsNullOrWhiteSpace(normalized))
-                {
-                    continue;
-                }
-
-                _pendingReceiveSuits.Add(normalized);
-            }
         }
 
         public bool TryGetCardImage(string suit, out Image image)
@@ -510,7 +493,28 @@ namespace Features.PlayerHandSystemImpl.View
             }
         }
 
-        private async UniTaskVoid PlayReceivedBatchAsync(RankCardsReceivedEvent payload)
+        private async UniTask DrainReceiveQueueAsync()
+        {
+            if (_isDrainingReceiveQueue || _viewModel == null)
+            {
+                return;
+            }
+
+            _isDrainingReceiveQueue = true;
+            try
+            {
+                while (_viewModel != null && _viewModel.TryDequeueCardsReceived(out var payload))
+                {
+                    await PlayReceivedBatchAsync(payload);
+                }
+            }
+            finally
+            {
+                _isDrainingReceiveQueue = false;
+            }
+        }
+
+        private async UniTask PlayReceivedBatchAsync(RankCardsReceivedEvent payload)
         {
             var expectedVersion = _bindingVersion;
             await EnqueueAnimation(token => PlayReceivedBatchCoreAsync(payload, expectedVersion, token));

@@ -12,15 +12,9 @@ namespace Features.PlayerHandSystemImpl.View
 {
     public partial class PlayerHandHolder
     {
-        private void OnCardRequested(CardRequestEvent evt)
-        {
-            // Placeholder for future UI hooks.
-        }
-
         private void OnCardTransferred(CardRequestEvent evt)
         {
-            var snapshot = SnapshotCardRequestEvent(evt);
-            EnqueueUiMutation(() => HandleCardTransferred(snapshot));
+            EnqueueUiMutation(() => HandleCardTransferred(evt));
         }
 
         private void HandleCardTransferred(CardRequestEvent evt)
@@ -44,6 +38,12 @@ namespace Features.PlayerHandSystemImpl.View
                 _localPlayerId = _presenter.LocalPlayerId;
             }
 
+            var isFromLocal = string.Equals(evt.AskerId, _localPlayerId, StringComparison.OrdinalIgnoreCase);
+            if (!isFromLocal)
+            {
+                return;
+            }
+
             _cardTransferAnimator.AnimateTransfer(evt, _localPlayerId);
         }
 
@@ -57,7 +57,6 @@ namespace Features.PlayerHandSystemImpl.View
         {
             DispatchStandardReceives(evt);
             DispatchBonusReceives(evt);
-            FlushPendingStandardReceives();
             FlushPendingBonusReceives();
         }
 
@@ -96,15 +95,9 @@ namespace Features.PlayerHandSystemImpl.View
                     continue;
                 }
 
-                if (!TryGetStandardViewModel(group.Key, out var viewModel) ||
-                    !TryGetStandardCardView(group.Key, out _))
+                if (!TryGetStandardViewModel(group.Key, out var viewModel))
                 {
-                    EnqueuePendingStandardReceive(
-                        group.Key,
-                        suits,
-                        evt.Source,
-                        evt.EventSeq,
-                        completedSetForRank);
+                    RequestLayoutRefresh();
                     continue;
                 }
 
@@ -133,7 +126,7 @@ namespace Features.PlayerHandSystemImpl.View
                 }
 
                 if (TryGetStandardViewModel(completedRank, out var completedViewModel) &&
-                    TryGetStandardCardView(completedRank, out _))
+                    completedViewModel != null)
                 {
                     MarkPendingSetCompletion(completedRank);
                     completedViewModel.NotifyCardsReceived(
@@ -144,76 +137,9 @@ namespace Features.PlayerHandSystemImpl.View
                 }
                 else
                 {
-                    EnqueuePendingStandardReceive(
-                        completedRank,
-                        Array.Empty<string>(),
-                        evt.Source,
-                        evt.EventSeq,
-                        completedSet: true);
+                    RequestLayoutRefresh();
                 }
             }
-        }
-
-        private void EnqueuePendingStandardReceive(
-            string rank,
-            IReadOnlyList<string> suits,
-            string source,
-            long eventSeq,
-            bool completedSet)
-        {
-            _receiveBuffer?.EnqueuePendingStandardReceive(rank, suits, source, eventSeq, completedSet);
-        }
-
-        private void FlushPendingStandardReceives()
-        {
-            _receiveBuffer?.FlushPendingStandardReceives(
-                CanDispatchStandardReceive,
-                DispatchBufferedStandardReceive);
-        }
-
-        private IReadOnlyList<string> GetPendingStandardSuitsForRank(string rank)
-        {
-            return _receiveBuffer != null
-                ? _receiveBuffer.GetPendingStandardSuitsForRank(rank)
-                : Array.Empty<string>();
-        }
-
-        private bool CanDispatchStandardReceive(string rank)
-        {
-            return TryGetStandardViewModel(rank, out _) && TryGetStandardCardView(rank, out _);
-        }
-
-        private bool DispatchBufferedStandardReceive(HandReceiveBuffer.PendingStandardDispatch dispatch)
-        {
-            if (!TryGetStandardViewModel(dispatch.Rank, out var viewModel))
-            {
-                return false;
-            }
-
-            var completedSetForRank = dispatch.CompletedSet;
-            if (completedSetForRank &&
-                (IsTransferredRank(dispatch.Rank) || IsTransferOutInProgress(dispatch.Rank)))
-            {
-                completedSetForRank = false;
-            }
-
-            if (completedSetForRank)
-            {
-                MarkPendingSetCompletion(dispatch.Rank);
-            }
-
-            if (dispatch.Suits.Count > 0)
-            {
-                _animationGate?.MarkReceiving(dispatch.Rank);
-            }
-
-            viewModel.NotifyCardsReceived(
-                dispatch.Source,
-                dispatch.Suits,
-                dispatch.EventSeq,
-                completedSetForRank);
-
-            return true;
         }
 
         private void DispatchBonusReceives(CardsReceivedEvent evt)
