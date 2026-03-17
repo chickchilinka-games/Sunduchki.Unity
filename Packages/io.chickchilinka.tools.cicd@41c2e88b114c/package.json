@@ -1,0 +1,13 @@
+{
+  "name": "io.chickchilinka.tools.cicd",
+  "version": "3.2.0",
+  "displayName": "CI Tools",
+  "description": "Tools and functions for CI/CD.",
+  "unity": "2021.3",
+  "author": "Chickchilinka",
+  "dependencies": {
+    "com.unity.ext.nunit": "1.0.6",
+    "com.unity.nuget.newtonsoft-json": "3.0.2",
+    "io.chickchilinka.tools.vault": "0.3.5"
+  }
+}

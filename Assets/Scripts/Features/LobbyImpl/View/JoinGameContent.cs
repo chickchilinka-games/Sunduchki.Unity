@@ -1,6 +1,6 @@
 using System;
 using Cysharp.Threading.Tasks;
-using ICVR.Window.Abstract;
+using Chickchilinka.Window.Abstract;
 using Features.AppLifecycle.Services;
 using Modules.Lobby.Data;
 using Modules.Lobby.Services;

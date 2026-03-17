@@ -6,7 +6,7 @@ using Features.AppLifecycle.States.Game;
 using Features.AppLifecycle.States.Home;
 using Features.LobbyImpl.View;
 using Features.WindowSystemImpl.Templates;
-using ICVR.Window;
+using Chickchilinka.Window;
 using Modules.Lobby.Data;
 using Modules.SignalR.Config;
 using Modules.Lobby.Services;

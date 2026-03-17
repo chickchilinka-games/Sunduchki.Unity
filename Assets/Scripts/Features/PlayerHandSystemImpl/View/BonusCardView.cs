@@ -5,7 +5,7 @@ using Features.BonusSystemImpl.View;
 using Features.PlayerHandSystemImpl.Presentation.ViewModel;
 using Features.PlayerHandSystemImpl.Utils;
 using Features.WindowSystemImpl.Templates;
-using ICVR.Window;
+using Chickchilinka.Window;
 using Modules.AssetSystem.Models;
 using Modules.AssetSystem.Services;
 using R3;

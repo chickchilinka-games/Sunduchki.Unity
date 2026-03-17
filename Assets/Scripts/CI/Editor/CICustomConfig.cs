@@ -1,5 +1,4 @@
-using ICVR.Tools;
-using MarrowMachine.Tools;
+using Chickchilinka.Tools;
 using UnityEditor;
 using UnityEngine;
 
@@ -28,7 +27,7 @@ namespace CI.Editor
             
             Debug.Log("Processing custom environment: " + environment);
             
-            PlayerSettings.applicationIdentifier = environment == AppEnvironment.Prod ? "" : "com.marrowmachine.sunduchki";
+            PlayerSettings.applicationIdentifier = environment == AppEnvironment.Prod ? "" : "com.chickchilinka.sunduchki";
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();

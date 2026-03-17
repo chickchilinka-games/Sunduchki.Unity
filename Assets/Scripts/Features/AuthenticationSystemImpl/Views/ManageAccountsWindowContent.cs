@@ -3,7 +3,7 @@ using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Features.LoadingScreen.Services;
-using ICVR.Window.Abstract;
+using Chickchilinka.Window.Abstract;
 using Modules.AuthenticationSystem.Data;
 using Modules.AuthenticationSystem.Services;
 using R3;

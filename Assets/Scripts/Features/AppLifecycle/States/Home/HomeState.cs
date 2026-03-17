@@ -4,7 +4,7 @@ using Features.AppLifecycle.States.Home.View;
 using Features.AppLifecycle.States.Lobby;
 using Features.AppLifecycle.Services;
 using Features.WindowSystemImpl.Templates;
-using ICVR.Window;
+using Chickchilinka.Window;
 using R3;
 using UniState;
 using UnityEngine.SceneManagement;

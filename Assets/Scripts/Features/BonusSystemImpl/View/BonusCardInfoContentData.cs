@@ -1,4 +1,4 @@
-using ICVR.Window.Basics;
+using Chickchilinka.Window.Basics;
 
 namespace Features.BonusSystemImpl.View
 {

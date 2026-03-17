@@ -5,7 +5,7 @@ using Cysharp.Threading.Tasks;
 using Features.AppLifecycle.Services;
 using Features.AppLifecycle.States.Game.View;
 using Features.WindowSystemImpl.Templates;
-using ICVR.Window;
+using Chickchilinka.Window;
 using Modules.Lobby.Data;
 using Modules.Lobby.Services;
 using R3;

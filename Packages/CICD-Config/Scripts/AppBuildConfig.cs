@@ -4,7 +4,7 @@
  */
 
 // ReSharper disable once CheckNamespace
-namespace MarrowMachine.Tools
+namespace Chickchilinka.Tools
 {
     // ReSharper disable once UnusedType.Global
     public static class AppBuildConfig

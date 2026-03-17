@@ -1,5 +1,5 @@
-using ICVR.Window;
-using ICVR.Window.Installers;
+using Chickchilinka.Window;
+using Chickchilinka.Window.Installers;
 using Zenject;
 
 namespace Features.WindowSystemImpl.Bootstrap

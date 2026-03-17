@@ -1,6 +1,6 @@
 using System;
 using Features.AppLifecycle.Services;
-using ICVR.Window.Abstract;
+using Chickchilinka.Window.Abstract;
 using UnityEngine;
 using UnityEngine.UI;
 using Zenject;
