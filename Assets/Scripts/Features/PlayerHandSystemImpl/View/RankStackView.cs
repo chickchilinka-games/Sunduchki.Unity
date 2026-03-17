@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
+using Features.CardRequestSystemImpl.View;
 using Features.PlayerHandSystemImpl.Presentation.Data;
 using Features.PlayerHandSystemImpl.Presentation.ViewModel;
 using Features.PlayerHandSystemImpl.Utils;
@@ -15,52 +16,54 @@ using Zenject;
 
 namespace Features.PlayerHandSystemImpl.View
 {
-    public class RankStackView : MonoBehaviour
+    public partial class RankStackView : MonoBehaviour
     {
         private static readonly Color DisabledTint = new(0.65f, 0.65f, 0.65f, 1f);
 
         [SerializeField] private Image[] _cards;
         [SerializeField] private Button _button;
         [SerializeField] private CanvasGroup _canvasGroup;
-        [Header("Animation")]
+        [Header("Receive Animation")]
         [SerializeField] private float _receiveOffsetY = 24f;
         [SerializeField] private float _receiveOffsetXFromOpponent = 36f;
         [SerializeField] private float _receiveOffsetYFromDeck = -32f;
         [SerializeField, Min(0.01f)] private float _receiveDuration = 0.28f;
-        [SerializeField, Min(0.01f)] private float _transferShakeDuration = 0.12f;
-        [SerializeField] private float _transferShakeStrength = 6f;
-        [SerializeField, Min(0.01f)] private float _transferFadeDuration = 0.2f;
         [SerializeField, Min(0.01f)] private float _setCompleteFlashDuration = 0.08f;
         [SerializeField, Min(0.01f)] private float _setCompleteFadeDuration = 0.2f;
+        [SerializeField, Min(0.05f)] private float _resolveCardTimeout = 1.2f;
+        [SerializeField, Min(0.01f)] private float _resolveCardRetryDelay = 0.03f;
+        [SerializeField, Min(0.01f)] private float _newCardAutoRevealDelay = 0.12f;
+        [SerializeField, Min(0.1f)] private float _recentlyRemovedSuitTtl = 1.5f;
         [SerializeField, Min(0.01f)] private float _tweenTimeoutBuffer = 0.35f;
 
         private readonly List<ManagedAsset<Sprite>> _cardSprites = new();
         private readonly Dictionary<Image, Vector2> _cardBasePositions = new();
         private readonly List<string> _resolvedSuits = new();
-        private readonly HashSet<string> _pendingReceiveSuits = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Queue<RankCardsReceivedEvent> _deferredReceiveBatches = new();
-        private readonly SemaphoreSlim _animationGate = new(1, 1);
-        private Func<RectTransform> _deckReceiveOriginProvider;
-        private Func<RectTransform> _opponentReceiveOriginProvider;
+        private readonly HashSet<string> _hiddenReceiveSuits = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _activeReceiveSuits = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, float> _pendingAutoRevealSuits = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<(string Suit, float Timestamp)> _recentlyRemovedSnapshotSuits = new();
+        private readonly Queue<RankStackCommand> _queuedCommands = new();
+        private readonly HashSet<string> _processedTransferActionIds = new(StringComparer.Ordinal);
+        private readonly RankStackTweenAnimator _tweenAnimator = new();
 
         private CardSpriteResolver _cardSpriteResolver;
         private RankStackViewModel _viewModel;
         private CompositeDisposable _bindings;
+        private CancellationTokenSource _bindingsCts;
         private RectTransform _rectTransform;
         private Vector2 _baseAnchoredPosition;
-        private bool _hasCompletedSetAnimation;
-        private bool _suppressRemovalAnimation;
-        private bool _isAnimationRunning;
-        private bool _isDrainingReceiveQueue;
-        private int _externalAnimationCount;
+        private Func<RectTransform> _deckReceiveOriginProvider;
+        private Func<RectTransform> _opponentReceiveOriginProvider;
+        private CardTransferAnimator _cardTransferAnimator;
+        private bool _isCommandLoopRunning;
+        private bool _removalRequested;
+        private bool _removalNotified;
+        private bool _setCompletePlayed;
         private int _bindingVersion;
-        private CancellationTokenSource _bindingsCts;
+        private long _lastAppliedSnapshotRevision;
 
-        public bool HasCompletedSetAnimation => _hasCompletedSetAnimation;
-        public bool HasActiveAnimations => _isAnimationRunning || _externalAnimationCount > 0;
-        public bool SkipRemovalAnimation => _suppressRemovalAnimation;
-        public event Action<RankStackView> SetCompletionAnimationFinished;
-        public event Action<RankStackView> AnimationsBecameIdle;
+        public event Action<RankStackView> RemovalReady;
 
         [Inject]
         public void Construct(CardSpriteResolver cardSpriteResolver)
@@ -93,7 +96,7 @@ namespace Features.PlayerHandSystemImpl.View
             ReleaseCardSprites();
         }
 
-        public async UniTask Initialize(RankStackViewModel viewModel)
+        public UniTask Initialize(RankStackViewModel viewModel)
         {
             if (viewModel == null)
             {
@@ -101,40 +104,39 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             ResetBindings();
-            ResetAnimations();
+            ResetVisualState();
 
             _viewModel = viewModel;
             _bindingsCts = new CancellationTokenSource();
             _bindings = new CompositeDisposable();
-            var expectedVersion = _bindingVersion;
-            var token = _bindingsCts.Token;
-
-            await UpdateCardsAsync(viewModel.Cards.CurrentValue, expectedVersion, token);
-
-            viewModel.Cards
-                .Subscribe(cards => UpdateCardsAsync(cards, expectedVersion, token).Forget())
-                .AddTo(_bindings);
 
             viewModel.CanPress
                 .Subscribe(SetInteractable)
                 .AddTo(_bindings);
 
-            viewModel.ReceiveQueued
-                .Subscribe(_ => DrainReceiveQueueAsync().Forget())
+            viewModel.CommandQueued
+                .Subscribe(_ =>
+                {
+                    EnqueueViewModelCommands();
+                    RunCommandLoopIfNeeded().Forget();
+                })
                 .AddTo(_bindings);
-            DrainReceiveQueueAsync().Forget();
 
             if (_button != null)
             {
                 _button.onClick.RemoveAllListeners();
                 _button.onClick.AddListener(() => _viewModel?.Press());
             }
+
+            EnqueueViewModelCommands();
+            RunCommandLoopIfNeeded().Forget();
+            return UniTask.CompletedTask;
         }
 
         public void ResetView()
         {
             ResetBindings();
-            ResetAnimations();
+            ResetVisualState();
             ReleaseCardSprites();
             DisableAllCards();
 
@@ -150,42 +152,27 @@ namespace Features.PlayerHandSystemImpl.View
             }
         }
 
-        public UniTask PlayTransferRemovalAnimationAsync()
-        {
-            return EnqueueAnimation(PlayTransferRemovalSequenceAsync);
-        }
-
-        public void MarkTransferredOut()
-        {
-            _suppressRemovalAnimation = true;
-        }
-
-        public IDisposable BeginExternalAnimation()
-        {
-            _externalAnimationCount++;
-            return new ExternalAnimationScope(EndExternalAnimation);
-        }
-
-        public UniTask WaitForExternalAnimationsAsync()
-        {
-            return _externalAnimationCount == 0
-                ? UniTask.CompletedTask
-                : UniTask.WaitUntil(() => _externalAnimationCount == 0);
-        }
-
-        public UniTask WaitForIdleAnimationsAsync()
-        {
-            return HasActiveAnimations
-                ? UniTask.WaitUntil(() => !HasActiveAnimations)
-                : UniTask.CompletedTask;
-        }
-
-        public void ConfigureReceiveOrigins(
+        public void ConfigureRuntime(
+            CardTransferAnimator cardTransferAnimator,
             Func<RectTransform> deckReceiveOriginProvider,
             Func<RectTransform> opponentReceiveOriginProvider)
         {
+            _cardTransferAnimator = cardTransferAnimator;
             _deckReceiveOriginProvider = deckReceiveOriginProvider;
             _opponentReceiveOriginProvider = opponentReceiveOriginProvider;
+        }
+
+        public void RequestRemoval()
+        {
+            _removalRequested = true;
+            _removalNotified = false;
+            NotifyRemovalReadyIfPossible();
+        }
+
+        public void EnqueueTransferOutCommand(IReadOnlyList<string> suits, int count, string actionId)
+        {
+            EnqueueCommand(RankStackCommand.TransferOut(suits, count, actionId));
+            RunCommandLoopIfNeeded().Forget();
         }
 
         public bool TryGetCardImage(string suit, out Image image)
@@ -197,138 +184,141 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             var normalizedSuit = NormalizeSuit(suit);
-            int index;
-            if (!string.IsNullOrWhiteSpace(normalizedSuit))
+            if (string.IsNullOrWhiteSpace(normalizedSuit))
             {
-                if (!TryResolveCardIndexBySuit(normalizedSuit, out index) || !IsCardReady(index))
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                if (!TryGetLastReadyCardIndex(out index))
-                {
-                    return false;
-                }
+                return false;
             }
 
-            image = _cards[index];
-            return image != null;
+            if (!TryResolveCardIndexBySuit(normalizedSuit, out var index))
+            {
+                return false;
+            }
+
+            if (index < 0 || index >= _cards.Length)
+            {
+                return false;
+            }
+
+            var card = _cards[index];
+            if (card == null || card.sprite == null || !card.gameObject.activeSelf)
+            {
+                return false;
+            }
+
+            image = card;
+            return true;
         }
 
         public void SetTint(Color color)
         {
-            ApplyTint(color);
-        }
-
-        private async UniTask UpdateCardsAsync(
-            IReadOnlyList<StandardCardItemViewModel> cards,
-            int expectedVersion,
-            CancellationToken token)
-        {
-            if (expectedVersion != _bindingVersion || token.IsCancellationRequested)
+            if (_cards == null)
             {
                 return;
             }
 
-            if (_cards == null || _cards.Length == 0 || _cardSpriteResolver == null || _viewModel == null)
+            foreach (var card in _cards)
             {
-                return;
-            }
-
-            var rank = NormalizeRank(_viewModel.Rank);
-            if (string.IsNullOrWhiteSpace(rank))
-            {
-                _resolvedSuits.Clear();
-                _pendingReceiveSuits.Clear();
-                ReleaseCardSprites();
-                DisableAllCards();
-                return;
-            }
-
-            var previousSuits = _resolvedSuits.ToList();
-            var previousSuitSet = new HashSet<string>(previousSuits, StringComparer.OrdinalIgnoreCase);
-            var hadCardsBefore = previousSuits.Count > 0;
-            var suits = cards?
-                .Select(card => NormalizeSuit(card?.Suit))
-                .Where(suit => !string.IsNullOrWhiteSpace(suit))
-                .ToList() ?? new List<string>();
-
-            _resolvedSuits.Clear();
-            _resolvedSuits.AddRange(suits);
-
-            ReleaseCardSprites();
-            DisableAllCards();
-
-            var max = Mathf.Min(suits.Count, _cards.Length);
-            for (var index = 0; index < max; index++)
-            {
-                var card = _cards[index];
                 if (card == null)
                 {
                     continue;
                 }
 
-                var handle = await LoadSpriteAsync(rank, suits[index], expectedVersion, token);
-                if (expectedVersion != _bindingVersion || token.IsCancellationRequested)
-                {
-                    handle?.Dispose();
-                    return;
-                }
+                var current = card.color;
+                card.color = new Color(color.r, color.g, color.b, current.a);
+            }
+        }
 
-                if (handle?.Asset == null)
+        private void SetInteractable(bool canPress)
+        {
+            if (_button != null)
+            {
+                _button.interactable = canPress;
+            }
+
+            if (_canvasGroup != null && !_setCompletePlayed)
+            {
+                _canvasGroup.alpha = 1f;
+            }
+
+            SetTint(canPress ? Color.white : DisabledTint);
+        }
+
+        private void CacheCardPositions()
+        {
+            if (_cards == null)
+            {
+                return;
+            }
+
+            foreach (var card in _cards)
+            {
+                if (card == null)
                 {
                     continue;
                 }
 
-                _cardSprites.Add(handle);
-                card.sprite = handle.Asset;
-                card.enabled = true;
-                card.gameObject.SetActive(true);
-
-                var suit = suits[index];
-                var isNewlyAdded = hadCardsBefore && !previousSuitSet.Contains(suit);
-                if (isNewlyAdded)
-                {
-                    _pendingReceiveSuits.Add(suit);
-                }
-
-                var hiddenUntilAnimated = isNewlyAdded || _pendingReceiveSuits.Contains(suit);
-                SetImageAlpha(card, hiddenUntilAnimated ? 0f : 1f);
-            }
-
-            var activeSuits = new HashSet<string>(suits, StringComparer.OrdinalIgnoreCase);
-            _pendingReceiveSuits.RemoveWhere(suit => !activeSuits.Contains(suit));
-
-            CacheCardPositions();
-            ApplyTint(_button != null && _button.interactable ? Color.white : DisabledTint);
-
-            if (_deferredReceiveBatches.Count > 0)
-            {
-                ProcessDeferredReceivesAsync(expectedVersion).Forget();
+                _cardBasePositions[card] = card.rectTransform.anchoredPosition;
             }
         }
 
-        private async UniTask<ManagedAsset<Sprite>> LoadSpriteAsync(
-            string rank,
-            string suit,
-            int expectedVersion,
-            CancellationToken token)
+        private void ResetBindings()
         {
-            if (_cardSpriteResolver == null || expectedVersion != _bindingVersion || token.IsCancellationRequested)
+            _bindings?.Dispose();
+            _bindings = null;
+            _bindingsCts?.Cancel();
+            _bindingsCts?.Dispose();
+            _bindingsCts = null;
+            _viewModel = null;
+            _bindingVersion++;
+            _isCommandLoopRunning = false;
+        }
+
+        private void ResetVisualState()
+        {
+            _removalRequested = false;
+            _removalNotified = false;
+            _setCompletePlayed = false;
+            _lastAppliedSnapshotRevision = 0;
+            _hiddenReceiveSuits.Clear();
+            _activeReceiveSuits.Clear();
+            _pendingAutoRevealSuits.Clear();
+            _recentlyRemovedSnapshotSuits.Clear();
+            _queuedCommands.Clear();
+            _processedTransferActionIds.Clear();
+
+            if (_canvasGroup != null)
             {
-                return null;
+                DOTween.Kill(_canvasGroup);
+                _canvasGroup.alpha = 1f;
             }
 
-            var handle = await _cardSpriteResolver.ResolveStandardCardAsync(rank, suit);
-            if (token.IsCancellationRequested)
+            if (_rectTransform != null)
             {
-                handle?.Dispose();
-                return null;
+                DOTween.Kill(_rectTransform);
+                _rectTransform.anchoredPosition = _baseAnchoredPosition;
             }
 
-            return handle;
+            if (_cards == null)
+            {
+                return;
+            }
+
+            foreach (var card in _cards)
+            {
+                if (card == null)
+                {
+                    continue;
+                }
+
+                DOTween.Kill(card);
+                DOTween.Kill(card.rectTransform);
+                if (_cardBasePositions.TryGetValue(card, out var basePos))
+                {
+                    card.rectTransform.anchoredPosition = basePos;
+                }
+
+                SetImageAlpha(card, 1f);
+            }
         }
 
         private void ReleaseCardSprites()
@@ -362,478 +352,106 @@ namespace Features.PlayerHandSystemImpl.View
             }
         }
 
-        private void SetInteractable(bool canPress)
+        private void NotifyRemovalReadyIfPossible()
         {
-            if (_button != null)
-            {
-                _button.interactable = canPress;
-            }
-
-            if (_canvasGroup != null)
-            {
-                _canvasGroup.alpha = 1f;
-            }
-
-            ApplyTint(canPress ? Color.white : DisabledTint);
-        }
-
-        private void CacheCardPositions()
-        {
-            if (_cards == null)
+            if (!_removalRequested || _removalNotified || _isCommandLoopRunning || _viewModel == null)
             {
                 return;
             }
 
-            foreach (var card in _cards)
+            if (_viewModel.HasPendingCommands)
             {
-                if (card == null)
+                return;
+            }
+
+            if (_queuedCommands.Count > 0)
+            {
+                return;
+            }
+
+            _removalNotified = true;
+            RemovalReady?.Invoke(this);
+        }
+
+        private void TrackRemovedSnapshotSuits(IReadOnlyList<string> incomingSuits)
+        {
+            CleanupRecentlyRemovedSnapshotSuits();
+            if (_resolvedSuits.Count == 0)
+            {
+                return;
+            }
+
+            var incoming = new HashSet<string>(NormalizeSuits(incomingSuits), StringComparer.OrdinalIgnoreCase);
+            var now = Time.unscaledTime;
+            foreach (var suit in _resolvedSuits)
+            {
+                if (string.IsNullOrWhiteSpace(suit) || incoming.Contains(suit))
                 {
                     continue;
                 }
 
-                _cardBasePositions[card] = card.rectTransform.anchoredPosition;
+                var exists = _recentlyRemovedSnapshotSuits.Any(entry =>
+                    string.Equals(entry.Suit, suit, StringComparison.OrdinalIgnoreCase));
+                if (!exists)
+                {
+                    _recentlyRemovedSnapshotSuits.Add((suit, now));
+                }
             }
         }
 
-        private void ApplyTint(Color color)
+        private void CleanupRecentlyRemovedSnapshotSuits()
         {
-            if (_cards == null)
+            if (_recentlyRemovedSnapshotSuits.Count == 0)
             {
                 return;
             }
 
-            foreach (var card in _cards)
+            var now = Time.unscaledTime;
+            for (var i = _recentlyRemovedSnapshotSuits.Count - 1; i >= 0; i--)
             {
-                if (card == null)
+                var entry = _recentlyRemovedSnapshotSuits[i];
+                if (now - entry.Timestamp > _recentlyRemovedSuitTtl)
                 {
-                    continue;
-                }
-
-                var current = card.color;
-                card.color = new Color(color.r, color.g, color.b, current.a);
-            }
-        }
-
-        private void ResetBindings()
-        {
-            _bindings?.Dispose();
-            _bindings = null;
-            _bindingsCts?.Cancel();
-            _bindingsCts?.Dispose();
-            _bindingsCts = null;
-            _viewModel = null;
-            _bindingVersion++;
-            _resolvedSuits.Clear();
-            _pendingReceiveSuits.Clear();
-            _deferredReceiveBatches.Clear();
-        }
-
-        private void ResetAnimations()
-        {
-            _hasCompletedSetAnimation = false;
-            _suppressRemovalAnimation = false;
-            _externalAnimationCount = 0;
-            _isAnimationRunning = false;
-
-            if (_rectTransform != null)
-            {
-                DOTween.Kill(_rectTransform);
-                _rectTransform.anchoredPosition = _baseAnchoredPosition;
-            }
-
-            if (_cards == null)
-            {
-                return;
-            }
-
-            foreach (var card in _cards)
-            {
-                if (card == null)
-                {
-                    continue;
-                }
-
-                DOTween.Kill(card);
-                if (_cardBasePositions.TryGetValue(card, out var basePos))
-                {
-                    card.rectTransform.anchoredPosition = basePos;
-                }
-
-                SetImageAlpha(card, 1f);
-            }
-        }
-
-        private UniTask EnqueueAnimation(Func<CancellationToken, UniTask> animation)
-        {
-            return RunQueued(animation);
-        }
-
-        private async UniTask RunQueued(Func<CancellationToken, UniTask> animation)
-        {
-            var token = _bindingsCts?.Token ?? CancellationToken.None;
-            var lockTaken = false;
-            try
-            {
-                await _animationGate.WaitAsync(token);
-                lockTaken = true;
-                _isAnimationRunning = true;
-                await animation(token);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            finally
-            {
-                if (lockTaken)
-                {
-                    _isAnimationRunning = false;
-                    _animationGate.Release();
-                    NotifyAnimationsBecameIdleIfNeeded();
+                    _recentlyRemovedSnapshotSuits.RemoveAt(i);
                 }
             }
         }
 
-        private async UniTask DrainReceiveQueueAsync()
+        private bool TryConsumeRecentlyRemovedSuit(List<string> pendingSuits, out string suit)
         {
-            if (_isDrainingReceiveQueue || _viewModel == null)
-            {
-                return;
-            }
-
-            _isDrainingReceiveQueue = true;
-            try
-            {
-                while (_viewModel != null && _viewModel.TryDequeueCardsReceived(out var payload))
-                {
-                    await PlayReceivedBatchAsync(payload);
-                }
-            }
-            finally
-            {
-                _isDrainingReceiveQueue = false;
-            }
-        }
-
-        private async UniTask PlayReceivedBatchAsync(RankCardsReceivedEvent payload)
-        {
-            var expectedVersion = _bindingVersion;
-            await EnqueueAnimation(token => PlayReceivedBatchCoreAsync(payload, expectedVersion, token));
-        }
-
-        private async UniTaskVoid ProcessDeferredReceivesAsync(int expectedVersion)
-        {
-            if (_deferredReceiveBatches.Count == 0)
-            {
-                return;
-            }
-
-            await EnqueueAnimation(token => FlushDeferredReceivesAsync(expectedVersion, token));
-        }
-
-        private async UniTask FlushDeferredReceivesAsync(int expectedVersion, CancellationToken token)
-        {
-            while (_deferredReceiveBatches.Count > 0)
-            {
-                if (token.IsCancellationRequested || expectedVersion != _bindingVersion)
-                {
-                    return;
-                }
-
-                var payload = _deferredReceiveBatches.Peek();
-                if (!TryResolveReceiveSteps(payload.Suits, out var receiveSteps))
-                {
-                    return;
-                }
-
-                _deferredReceiveBatches.Dequeue();
-                await PlayReceiveBatchAsync(payload, receiveSteps, expectedVersion, token);
-            }
-        }
-
-        private async UniTask PlayReceivedBatchCoreAsync(
-            RankCardsReceivedEvent payload,
-            int expectedVersion,
-            CancellationToken token)
-        {
-            if (token.IsCancellationRequested || expectedVersion != _bindingVersion)
-            {
-                return;
-            }
-
-            if (!TryResolveReceiveSteps(payload.Suits, out var receiveSteps))
-            {
-                _deferredReceiveBatches.Enqueue(CloneReceivePayload(payload));
-                return;
-            }
-
-            await PlayReceiveBatchAsync(payload, receiveSteps, expectedVersion, token);
-        }
-
-        private async UniTask PlayReceiveBatchAsync(
-            RankCardsReceivedEvent payload,
-            IReadOnlyList<(int Index, string Suit)> receiveSteps,
-            int expectedVersion,
-            CancellationToken token)
-        {
-            if (token.IsCancellationRequested || expectedVersion != _bindingVersion)
-            {
-                return;
-            }
-
-            for (var i = 0; i < receiveSteps.Count; i++)
-            {
-                if (token.IsCancellationRequested || expectedVersion != _bindingVersion)
-                {
-                    return;
-                }
-
-                var step = receiveSteps[i];
-                await PlayReceiveAnimationAsync(step.Index, payload.Source, step.Suit, token);
-            }
-
-            if (!payload.CompletedSet || _hasCompletedSetAnimation || token.IsCancellationRequested || expectedVersion != _bindingVersion)
-            {
-                return;
-            }
-
-            await PlaySetCompleteSequenceAsync(token);
-            if (!token.IsCancellationRequested && expectedVersion == _bindingVersion)
-            {
-                _hasCompletedSetAnimation = true;
-                SetCompletionAnimationFinished?.Invoke(this);
-            }
-        }
-
-        private bool TryResolveReceiveSteps(
-            IReadOnlyList<string> suits,
-            out List<(int Index, string Suit)> receiveSteps)
-        {
-            receiveSteps = new List<(int Index, string Suit)>();
-            if (suits == null || suits.Count == 0)
-            {
-                return true;
-            }
-
-            for (var i = 0; i < suits.Count; i++)
-            {
-                var normalizedSuit = NormalizeSuit(suits[i]);
-                if (string.IsNullOrWhiteSpace(normalizedSuit))
-                {
-                    continue;
-                }
-
-                if (!TryGetReadyCardIndex(normalizedSuit, out var index))
-                {
-                    return false;
-                }
-
-                receiveSteps.Add((index, normalizedSuit));
-            }
-
-            return true;
-        }
-
-        private static RankCardsReceivedEvent CloneReceivePayload(RankCardsReceivedEvent payload)
-        {
-            var suits = payload.Suits != null
-                ? payload.Suits.ToArray()
-                : Array.Empty<string>();
-
-            return new RankCardsReceivedEvent(
-                payload.Source,
-                suits,
-                payload.EventSeq,
-                payload.CompletedSet);
-        }
-
-        private bool TryGetReadyCardIndex(string normalizedSuit, out int index)
-        {
-            index = -1;
-            if (!string.IsNullOrWhiteSpace(normalizedSuit))
-            {
-                if (!TryResolveCardIndexBySuit(normalizedSuit, out var suitIndex))
-                {
-                    return false;
-                }
-
-                if (!IsCardReady(suitIndex))
-                {
-                    return false;
-                }
-
-                index = suitIndex;
-                return true;
-            }
-
-            return TryGetLastReadyCardIndex(out index);
-        }
-
-        private bool TryGetLastReadyCardIndex(out int index)
-        {
-            index = -1;
-            if (_cards == null || _cards.Length == 0)
+            suit = string.Empty;
+            CleanupRecentlyRemovedSnapshotSuits();
+            if (_recentlyRemovedSnapshotSuits.Count == 0)
             {
                 return false;
             }
 
-            for (var i = _cards.Length - 1; i >= 0; i--)
+            if (pendingSuits != null && pendingSuits.Count > 0)
             {
-                if (!IsCardReady(i))
+                var expectedSuit = NormalizeSuit(pendingSuits[0]);
+                for (var i = 0; i < _recentlyRemovedSnapshotSuits.Count; i++)
                 {
-                    continue;
-                }
+                    var entry = _recentlyRemovedSnapshotSuits[i];
+                    if (!string.Equals(entry.Suit, expectedSuit, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
 
-                index = i;
+                    suit = entry.Suit;
+                    _recentlyRemovedSnapshotSuits.RemoveAt(i);
+                    pendingSuits.RemoveAt(0);
+                    return true;
+                }
+            }
+
+            if (pendingSuits == null || pendingSuits.Count == 0)
+            {
+                suit = _recentlyRemovedSnapshotSuits[0].Suit;
+                _recentlyRemovedSnapshotSuits.RemoveAt(0);
                 return true;
             }
 
             return false;
-        }
-
-        private bool TryResolveCardIndexBySuit(string normalizedSuit, out int index)
-        {
-            index = -1;
-            if (string.IsNullOrWhiteSpace(normalizedSuit) || _resolvedSuits.Count == 0 || _cards == null)
-            {
-                return false;
-            }
-
-            var max = Mathf.Min(_resolvedSuits.Count, _cards.Length);
-            for (var i = 0; i < max; i++)
-            {
-                if (!string.Equals(_resolvedSuits[i], normalizedSuit, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                index = i;
-                return true;
-            }
-
-            return false;
-        }
-
-        private bool IsCardReady(int cardIndex)
-        {
-            if (_cards == null || cardIndex < 0 || cardIndex >= _cards.Length)
-            {
-                return false;
-            }
-
-            var card = _cards[cardIndex];
-            return card != null && card.gameObject.activeSelf && card.sprite != null;
-        }
-
-        private async UniTask PlayReceiveAnimationAsync(int cardIndex, string source, string suit, CancellationToken token)
-        {
-            if (token.IsCancellationRequested || !IsCardReady(cardIndex))
-            {
-                return;
-            }
-
-            var card = _cards[cardIndex];
-            var rect = card.rectTransform;
-            await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate, token);
-            CacheCardPositions();
-
-            var basePos = _cardBasePositions.TryGetValue(card, out var cached) ? cached : rect.anchoredPosition;
-            var targetWorld = rect.position;
-            var receiveOrigin = ResolveReceiveOrigin(source);
-
-            DOTween.Kill(card);
-            DOTween.Kill(rect);
-            if (receiveOrigin != null)
-            {
-                rect.position = receiveOrigin.position;
-            }
-            else
-            {
-                rect.anchoredPosition = basePos + ResolveReceiveOffset(source);
-            }
-
-            SetImageAlpha(card, 0f);
-
-            var sequence = DOTween.Sequence().SetUpdate(true);
-            if (receiveOrigin != null)
-            {
-                sequence.Append(rect.DOMove(targetWorld, _receiveDuration).SetEase(Ease.OutQuad));
-            }
-            else
-            {
-                sequence.Append(rect.DOAnchorPos(basePos, _receiveDuration).SetEase(Ease.OutQuad));
-            }
-
-            sequence.Join(card.DOFade(1f, _receiveDuration));
-            await TweenAwaiter.AwaitAsync(sequence, _receiveDuration + _tweenTimeoutBuffer, token);
-            rect.anchoredPosition = basePos;
-            SetImageAlpha(card, 1f);
-            if (!string.IsNullOrWhiteSpace(suit))
-            {
-                _pendingReceiveSuits.Remove(suit);
-            }
-        }
-
-        private RectTransform ResolveReceiveOrigin(string source)
-        {
-            if (string.Equals(source, "deck", StringComparison.OrdinalIgnoreCase))
-            {
-                return _deckReceiveOriginProvider?.Invoke();
-            }
-
-            return _opponentReceiveOriginProvider?.Invoke();
-        }
-
-        private Vector2 ResolveReceiveOffset(string source)
-        {
-            if (string.Equals(source, "deck", StringComparison.OrdinalIgnoreCase))
-            {
-                return new Vector2(0f, _receiveOffsetYFromDeck);
-            }
-
-            return new Vector2(_receiveOffsetXFromOpponent, 0f);
-        }
-
-        private async UniTask PlaySetCompleteSequenceAsync(CancellationToken token)
-        {
-            if (_canvasGroup == null)
-            {
-                return;
-            }
-
-            var sequence = DOTween.Sequence().SetUpdate(true);
-            sequence.Append(_canvasGroup.DOFade(0.3f, _setCompleteFlashDuration));
-            sequence.Append(_canvasGroup.DOFade(1f, _setCompleteFlashDuration));
-            sequence.Append(_canvasGroup.DOFade(0f, _setCompleteFadeDuration));
-            await TweenAwaiter.AwaitAsync(
-                sequence,
-                (_setCompleteFlashDuration * 2f) + _setCompleteFadeDuration + _tweenTimeoutBuffer,
-                token);
-        }
-
-        private async UniTask PlayTransferRemovalSequenceAsync(CancellationToken token)
-        {
-            if (_canvasGroup == null)
-            {
-                return;
-            }
-
-            if (_rectTransform != null)
-            {
-                var shake = _rectTransform
-                    .DOShakeAnchorPos(_transferShakeDuration, _transferShakeStrength, 10, 0f)
-                    .SetUpdate(true);
-                await TweenAwaiter.AwaitAsync(shake, _transferShakeDuration + _tweenTimeoutBuffer, token);
-            }
-
-            var sequence = DOTween.Sequence().SetUpdate(true);
-            sequence.Append(_canvasGroup.DOFade(0f, _transferFadeDuration));
-            if (_rectTransform != null)
-            {
-                var start = _rectTransform.anchoredPosition;
-                sequence.Join(_rectTransform.DOAnchorPos(start + new Vector2(0f, _receiveOffsetY), _transferFadeDuration));
-            }
-
-            await TweenAwaiter.AwaitAsync(sequence, _transferFadeDuration + _tweenTimeoutBuffer, token);
         }
 
         private static void SetImageAlpha(Image image, float alpha)
@@ -857,23 +475,26 @@ namespace Features.PlayerHandSystemImpl.View
             return string.IsNullOrWhiteSpace(suit) ? string.Empty : suit.Trim().ToLowerInvariant();
         }
 
-        private void EndExternalAnimation()
+        private static List<string> NormalizeSuits(IReadOnlyList<string> suits)
         {
-            if (_externalAnimationCount <= 0)
+            var normalized = new List<string>();
+            if (suits == null)
             {
-                return;
+                return normalized;
             }
 
-            _externalAnimationCount--;
-            NotifyAnimationsBecameIdleIfNeeded();
-        }
-
-        private void NotifyAnimationsBecameIdleIfNeeded()
-        {
-            if (!HasActiveAnimations)
+            for (var i = 0; i < suits.Count; i++)
             {
-                AnimationsBecameIdle?.Invoke(this);
+                var suit = NormalizeSuit(suits[i]);
+                if (string.IsNullOrWhiteSpace(suit))
+                {
+                    continue;
+                }
+
+                normalized.Add(suit);
             }
+
+            return normalized;
         }
     }
 }

@@ -19,20 +19,6 @@ namespace Features.PlayerHandSystemImpl.View
 
         private void HandleCardTransferred(CardRequestEvent evt)
         {
-            if (_cardTransferAnimator == null)
-            {
-                _cardTransferAnimator = FindObjectOfType<CardTransferAnimator>();
-                if (_cardTransferAnimator == null)
-                {
-                    return;
-                }
-            }
-
-            if (string.Equals(evt.TargetId, "chest", StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
             if (string.IsNullOrWhiteSpace(_localPlayerId))
             {
                 _localPlayerId = _presenter.LocalPlayerId;
@@ -44,7 +30,37 @@ namespace Features.PlayerHandSystemImpl.View
                 return;
             }
 
-            _cardTransferAnimator.AnimateTransfer(evt, _localPlayerId);
+            var rank = NormalizeRank(evt.Rank);
+            if (string.IsNullOrWhiteSpace(rank))
+            {
+                return;
+            }
+
+            if (!TryGetStandardViewByRank(rank, out var view, out var viewModel) || view == null)
+            {
+                RequestLayoutRefresh();
+                return;
+            }
+
+            var suits = ResolveTransferredSuits(evt, rank);
+            var transferCount = evt.Cards != null && evt.Cards.Count > 0
+                ? evt.Cards.Count
+                : (evt.Count > 0 ? evt.Count : suits.Count);
+            if (transferCount <= 0)
+            {
+                return;
+            }
+
+            var actionId = BuildTransferActionId(evt, rank, transferCount);
+            if (!TryDispatchTransferOut(rank, suits, transferCount, actionId))
+            {
+                _pendingTransferOuts.Enqueue(new PendingTransferOut(
+                    rank,
+                    suits.ToArray(),
+                    transferCount,
+                    actionId,
+                    Time.unscaledTime));
+            }
         }
 
         private void OnCardsReceived(CardsReceivedEvent evt)
@@ -84,11 +100,6 @@ namespace Features.PlayerHandSystemImpl.View
 
                 var completedSetForRank = evt.CompletedSet &&
                                           string.Equals(group.Key, completedRank, StringComparison.OrdinalIgnoreCase);
-                if (completedSetForRank &&
-                    (IsTransferredRank(group.Key) || IsTransferOutInProgress(group.Key)))
-                {
-                    completedSetForRank = false;
-                }
 
                 if (suits.Count == 0 && !completedSetForRank)
                 {
@@ -101,44 +112,24 @@ namespace Features.PlayerHandSystemImpl.View
                     continue;
                 }
 
+                viewModel.EnqueueReceive(evt.Source, suits, evt.EventSeq, completedSetForRank);
                 if (completedSetForRank)
                 {
-                    MarkPendingSetCompletion(group.Key);
                     completedRankNotified = true;
                 }
-
-                if (suits.Count > 0)
-                {
-                    _animationGate?.MarkReceiving(group.Key);
-                }
-
-                viewModel.NotifyCardsReceived(evt.Source, suits, evt.EventSeq, completedSetForRank);
             }
 
             if (evt.CompletedSet &&
                 !completedRankNotified &&
-                !string.IsNullOrWhiteSpace(completedRank))
+                !string.IsNullOrWhiteSpace(completedRank) &&
+                TryGetStandardViewModel(completedRank, out var completedViewModel) &&
+                completedViewModel != null)
             {
-                var transferOutInProgress = IsTransferredRank(completedRank) || IsTransferOutInProgress(completedRank);
-                if (transferOutInProgress)
-                {
-                    return;
-                }
-
-                if (TryGetStandardViewModel(completedRank, out var completedViewModel) &&
-                    completedViewModel != null)
-                {
-                    MarkPendingSetCompletion(completedRank);
-                    completedViewModel.NotifyCardsReceived(
-                        evt.Source,
-                        Array.Empty<string>(),
-                        evt.EventSeq,
-                        completedSet: true);
-                }
-                else
-                {
-                    RequestLayoutRefresh();
-                }
+                completedViewModel.EnqueueReceive(
+                    evt.Source,
+                    Array.Empty<string>(),
+                    evt.EventSeq,
+                    completedSet: true);
             }
         }
 
@@ -161,18 +152,47 @@ namespace Features.PlayerHandSystemImpl.View
 
         private void EnqueuePendingBonusReceive(string bonusType, string source)
         {
-            _receiveBuffer?.EnqueuePendingBonusReceive(bonusType, source);
+            if (string.IsNullOrWhiteSpace(bonusType))
+            {
+                return;
+            }
+
+            _pendingBonusReceives.Enqueue(new PendingBonusReceive(
+                NormalizeBonus(bonusType),
+                source,
+                Time.unscaledTime));
         }
 
         private void FlushPendingBonusReceives()
         {
-            _receiveBuffer?.FlushPendingBonusReceives(ResolveReceiveOrigin, TryAnimateBonusReceive);
+            if (_pendingBonusReceives.Count == 0)
+            {
+                return;
+            }
+
+            var now = Time.unscaledTime;
+            var pendingCount = _pendingBonusReceives.Count;
+            for (var i = 0; i < pendingCount; i++)
+            {
+                var pending = _pendingBonusReceives.Dequeue();
+                if (now - pending.CreatedAt > PendingBonusReceiveMaxAgeSeconds)
+                {
+                    continue;
+                }
+
+                var origin = ResolveReceiveOrigin(pending.Source);
+                var card = new BonusCardData(pending.BonusType);
+                if (origin == null || !TryAnimateBonusReceive(card, origin))
+                {
+                    _pendingBonusReceives.Enqueue(pending);
+                }
+            }
         }
 
         private bool TryAnimateBonusReceive(BonusCardData card, RectTransform origin)
         {
             var typeKey = NormalizeBonus(card.BonusType);
-            foreach (var viewModel in _bonusPresenter.BonusCards)
+            foreach (var viewModel in _bonusPresenter.BonusCards.ToList())
             {
                 if (!string.Equals(viewModel.BonusCardType, typeKey, StringComparison.OrdinalIgnoreCase))
                 {
@@ -198,7 +218,7 @@ namespace Features.PlayerHandSystemImpl.View
                 return false;
             }
 
-            foreach (var candidate in _presenter.StandardCards)
+            foreach (var candidate in _presenter.StandardCards.ToList())
             {
                 if (candidate == null)
                 {
@@ -215,6 +235,81 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             return false;
+        }
+
+        private static IReadOnlyList<string> ResolveTransferredSuits(CardRequestEvent evt, string rank)
+        {
+            var suits = new List<string>();
+            if (evt.Cards == null || evt.Cards.Count == 0)
+            {
+                return suits;
+            }
+
+            for (var i = 0; i < evt.Cards.Count; i++)
+            {
+                var card = evt.Cards[i];
+                if (!string.Equals(NormalizeRank(card.Rank), rank, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var suit = NormalizeSuit(card.Suit);
+                if (string.IsNullOrWhiteSpace(suit))
+                {
+                    continue;
+                }
+
+                suits.Add(suit);
+            }
+
+            return suits;
+        }
+
+        private static string BuildTransferActionId(CardRequestEvent evt, string rank, int count)
+        {
+            return $"{evt.Timestamp.Ticks}:{evt.AskerId}:{evt.TargetId}:{rank}:{count}";
+        }
+
+        private void FlushPendingTransferOuts()
+        {
+            if (_pendingTransferOuts.Count == 0)
+            {
+                return;
+            }
+
+            var now = Time.unscaledTime;
+            var pendingCount = _pendingTransferOuts.Count;
+            for (var i = 0; i < pendingCount; i++)
+            {
+                var pending = _pendingTransferOuts.Dequeue();
+                if (now - pending.CreatedAt > PendingTransferOutMaxAgeSeconds)
+                {
+                    continue;
+                }
+
+                if (!TryDispatchTransferOut(pending.Rank, pending.Suits, pending.Count, pending.ActionId))
+                {
+                    _pendingTransferOuts.Enqueue(pending);
+                }
+            }
+        }
+
+        private bool TryDispatchTransferOut(string rank, IReadOnlyList<string> suits, int transferCount, string actionId)
+        {
+            var dispatched = false;
+            if (TryGetStandardViewModel(rank, out var viewModel) && viewModel != null)
+            {
+                viewModel.EnqueueTransferOut(suits, transferCount, actionId);
+                dispatched = true;
+            }
+
+            if (TryGetStandardViewByRank(rank, out var view, out _) && view != null)
+            {
+                view.EnqueueTransferOutCommand(suits, transferCount, actionId);
+                dispatched = true;
+            }
+
+            return dispatched;
         }
 
         private RectTransform ResolveReceiveOrigin(string source)

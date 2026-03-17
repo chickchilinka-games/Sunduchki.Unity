@@ -12,7 +12,6 @@ using Features.PlayerHandSystemImpl.Presentation.ViewModel;
 using Modules.PlayerHand.Data;
 using R3;
 using UnityEngine;
-using UnityEngine.UI;
 using Zenject;
 
 namespace Features.PlayerHandSystemImpl.View
@@ -43,20 +42,52 @@ namespace Features.PlayerHandSystemImpl.View
 
         private readonly Dictionary<RankStackViewModel, RankStackView> _standardViews = new();
         private readonly Dictionary<BonusCardViewModel, BonusCardView> _bonusViews = new();
-        private readonly HashSet<RankStackViewModel> _removingStandard = new();
-        private readonly HashSet<RankStackViewModel> _waitingStandardAnimation = new();
-        private HandLayoutController _layoutController;
-        private HandAnimationGate _animationGate;
-        private HandReceiveBuffer _receiveBuffer;
+        private readonly HashSet<RankStackViewModel> _pendingStandardRemoval = new();
+        private readonly Dictionary<RankStackViewModel, float> _pendingStandardRemovalSince = new();
         private readonly Queue<Action> _pendingUiMutations = new();
+        private readonly Queue<PendingBonusReceive> _pendingBonusReceives = new();
+        private readonly Queue<PendingTransferOut> _pendingTransferOuts = new();
         private bool _isExecutingUiMutations;
+        private HandLayoutController _layoutController;
 
         private RectTransform _cachedOpponentAnchor;
         private bool _warnedMissingDeckOrigin;
         private const float PendingBonusReceiveMaxAgeSeconds = 8f;
-        private const float TransferOutReleaseDelaySeconds = 0.2f;
-        private const float RemovalStartGraceSeconds = 0.2f;
+        private const float PendingTransferOutMaxAgeSeconds = 4f;
+        private const float MissingStandardRemovalGraceSeconds = 0.35f;
         private const int MaxUiMutationsPerPass = 256;
+
+        private readonly struct PendingBonusReceive
+        {
+            public string BonusType { get; }
+            public string Source { get; }
+            public float CreatedAt { get; }
+
+            public PendingBonusReceive(string bonusType, string source, float createdAt)
+            {
+                BonusType = bonusType ?? string.Empty;
+                Source = source ?? string.Empty;
+                CreatedAt = createdAt;
+            }
+        }
+
+        private readonly struct PendingTransferOut
+        {
+            public string Rank { get; }
+            public IReadOnlyList<string> Suits { get; }
+            public int Count { get; }
+            public string ActionId { get; }
+            public float CreatedAt { get; }
+
+            public PendingTransferOut(string rank, IReadOnlyList<string> suits, int count, string actionId, float createdAt)
+            {
+                Rank = rank ?? string.Empty;
+                Suits = suits ?? Array.Empty<string>();
+                Count = count;
+                ActionId = actionId ?? string.Empty;
+                CreatedAt = createdAt;
+            }
+        }
 
         [Inject]
         public void Construct(
@@ -86,8 +117,6 @@ namespace Features.PlayerHandSystemImpl.View
 
             _layoutController ??= new HandLayoutController(_maxItemsPerRow, _rowItemSpacing, _rowAlignment);
             _layoutController.SetRoot(_rowsRoot);
-            _animationGate ??= new HandAnimationGate(TransferOutReleaseDelaySeconds, RemovalStartGraceSeconds);
-            _receiveBuffer ??= new HandReceiveBuffer(PendingBonusReceiveMaxAgeSeconds);
             _renderLoopCts = new CancellationTokenSource();
             _isRenderScheduled = false;
             _isRenderRunning = false;
@@ -141,11 +170,11 @@ namespace Features.PlayerHandSystemImpl.View
             _renderLoopCts = null;
             _isRenderScheduled = false;
             _isRenderRunning = false;
-            _animationGate?.Clear();
-            _receiveBuffer?.Clear();
-            _removingStandard.Clear();
-            _waitingStandardAnimation.Clear();
+            _pendingStandardRemoval.Clear();
+            _pendingStandardRemovalSince.Clear();
             _pendingUiMutations.Clear();
+            _pendingBonusReceives.Clear();
+            _pendingTransferOuts.Clear();
             _isExecutingUiMutations = false;
             ReleaseAllViews();
         }
@@ -265,11 +294,13 @@ namespace Features.PlayerHandSystemImpl.View
 
             ExecutePendingUiMutations();
 
-            var activeStandard = new HashSet<RankStackViewModel>(_presenter.StandardCards);
-            var activeBonus = new HashSet<BonusCardViewModel>(_bonusPresenter.BonusCards);
+            var presenterStandard = _presenter.StandardCards.ToList();
+            var presenterBonus = _bonusPresenter.BonusCards.ToList();
+            var activeStandard = new HashSet<RankStackViewModel>(presenterStandard);
+            var activeBonus = new HashSet<BonusCardViewModel>(presenterBonus);
 
-            BeginOutgoingStandardRemovals(activeStandard);
-            var orderedStandard = BuildStandardLayoutOrder(activeStandard);
+            MarkMissingStandardForRemoval(activeStandard);
+            var orderedStandard = BuildStandardLayoutOrder(activeStandard, presenterStandard);
 
             ResetRows();
             var slotIndex = 0;
@@ -299,7 +330,7 @@ namespace Features.PlayerHandSystemImpl.View
                 }
             }
 
-            foreach (var viewModel in _bonusPresenter.BonusCards)
+            foreach (var viewModel in presenterBonus)
             {
                 var parent = GetRowTransform(slotIndex++);
                 if (!_bonusViews.TryGetValue(viewModel, out var view) || view == null)
@@ -315,8 +346,82 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             RemoveMissingBonusViews(activeBonus);
+            FlushPendingTransferOuts();
             FlushPendingBonusReceives();
             ForceRebuildLayout();
+        }
+
+        private void MarkMissingStandardForRemoval(IReadOnlyCollection<RankStackViewModel> activeStandard)
+        {
+            var now = Time.unscaledTime;
+            var entries = _standardViews.ToArray();
+            foreach (var entry in entries)
+            {
+                var viewModel = entry.Key;
+                var view = entry.Value;
+                if (viewModel == null || view == null)
+                {
+                    continue;
+                }
+
+                if (activeStandard.Contains(viewModel))
+                {
+                    _pendingStandardRemoval.Remove(viewModel);
+                    _pendingStandardRemovalSince.Remove(viewModel);
+                    continue;
+                }
+
+                if (_pendingStandardRemoval.Add(viewModel))
+                {
+                    _pendingStandardRemovalSince[viewModel] = now;
+                }
+
+                if (!_pendingStandardRemovalSince.TryGetValue(viewModel, out var pendingSince))
+                {
+                    pendingSince = now;
+                    _pendingStandardRemovalSince[viewModel] = pendingSince;
+                }
+
+                if (now - pendingSince < MissingStandardRemovalGraceSeconds)
+                {
+                    continue;
+                }
+
+                view.RequestRemoval();
+            }
+        }
+
+        private void OnStandardViewRemovalReady(RankStackView view)
+        {
+            if (view == null || !_presenter.IsActive.CurrentValue)
+            {
+                return;
+            }
+
+            if (!TryGetViewModelByView(view, out var viewModel))
+            {
+                return;
+            }
+
+            if (IsViewModelActive(viewModel) && !_pendingStandardRemoval.Contains(viewModel))
+            {
+                return;
+            }
+
+            FinalizeStandardRemoval(viewModel, view);
+            RequestLayoutRefresh();
+        }
+
+        private void FinalizeStandardRemoval(RankStackViewModel viewModel, RankStackView view)
+        {
+            if (viewModel != null)
+            {
+                _standardViews.Remove(viewModel);
+                _pendingStandardRemoval.Remove(viewModel);
+                _pendingStandardRemovalSince.Remove(viewModel);
+            }
+
+            SafeDespawnStandardView(view, NormalizeRank(viewModel?.Rank));
         }
 
         private static string NormalizeRank(string rank)
@@ -352,7 +457,5 @@ namespace Features.PlayerHandSystemImpl.View
                 evt.CompletedSet,
                 evt.CompletedSetRank);
         }
-
     }
 }
-

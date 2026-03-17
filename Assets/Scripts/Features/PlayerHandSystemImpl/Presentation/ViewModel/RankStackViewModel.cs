@@ -14,13 +14,15 @@ namespace Features.PlayerHandSystemImpl.Presentation.ViewModel
         private readonly ReactiveProperty<bool> _canPress;
         private readonly Dictionary<string, StandardCardItemViewModel> _cardsBySuit = new(StringComparer.OrdinalIgnoreCase);
         private readonly IPlayerHandCommands _commands;
-        private readonly Subject<Unit> _receiveQueued = new();
-        private readonly Queue<RankCardsReceivedEvent> _receiveQueue = new();
+        private readonly Subject<Unit> _commandQueued = new();
+        private readonly LinkedList<RankStackCommand> _commandsQueue = new();
+        private long _snapshotRevision;
 
         public string Rank { get; }
         public ReadOnlyReactiveProperty<IReadOnlyList<StandardCardItemViewModel>> Cards => _cards;
         public ReadOnlyReactiveProperty<bool> CanPress => _canPress;
-        public Observable<Unit> ReceiveQueued => _receiveQueued;
+        public Observable<Unit> CommandQueued => _commandQueued;
+        public bool HasPendingCommands => _commandsQueue.Count > 0;
 
         public RankStackViewModel(string rank, IEnumerable<string> suits)
             : this(rank, suits, NullPlayerHandCommands.Instance)
@@ -34,10 +36,15 @@ namespace Features.PlayerHandSystemImpl.Presentation.ViewModel
             _canPress = new ReactiveProperty<bool>(false);
             _commands = commands ?? NullPlayerHandCommands.Instance;
 
-            ApplySnapshot(suits);
+            ApplySnapshot(suits, NextSnapshotRevision());
         }
 
         public void ApplySnapshot(IEnumerable<string> suits)
+        {
+            ApplySnapshot(suits, NextSnapshotRevision());
+        }
+
+        public void ApplySnapshot(IEnumerable<string> suits, long revision)
         {
             var normalized = new List<string>();
             if (suits != null)
@@ -53,6 +60,12 @@ namespace Features.PlayerHandSystemImpl.Presentation.ViewModel
             }
 
             ApplySuits(normalized);
+            if (revision > _snapshotRevision)
+            {
+                _snapshotRevision = revision;
+            }
+
+            EnqueueCommand(RankStackCommand.Snapshot(normalized.ToArray(), _snapshotRevision), coalesceSnapshot: true);
         }
 
         public void AddSuit(string suit)
@@ -111,30 +124,77 @@ namespace Features.PlayerHandSystemImpl.Presentation.ViewModel
         {
             _cards?.Dispose();
             _canPress?.Dispose();
-            _receiveQueued?.Dispose();
+            _commandQueued?.Dispose();
         }
 
-        public void NotifyCardsReceived(string source, IReadOnlyList<string> suits, long eventSeq, bool completedSet)
+        public void EnqueueReceive(string source, IReadOnlyList<string> suits, long eventSeq, bool completedSet)
         {
-            var payload = new RankCardsReceivedEvent(
-                source,
-                suits ?? Array.Empty<string>(),
-                eventSeq,
-                completedSet);
-            _receiveQueue.Enqueue(payload);
-            _receiveQueued.OnNext(Unit.Default);
-        }
-
-        public bool TryDequeueCardsReceived(out RankCardsReceivedEvent payload)
-        {
-            if (_receiveQueue.Count == 0)
+            var normalizedSuits = NormalizeSuits(suits);
+            if (normalizedSuits.Count > 0)
             {
-                payload = default;
+                EnqueueCommand(RankStackCommand.Receive(source, normalizedSuits, eventSeq, completedSet: false));
+            }
+
+            if (completedSet)
+            {
+                EnqueueCommand(RankStackCommand.SetComplete(eventSeq));
+            }
+        }
+
+        public void EnqueueTransferOut(IReadOnlyList<string> suits, int count, string actionId)
+        {
+            var normalizedSuits = NormalizeSuits(suits);
+            if (normalizedSuits.Count == 0 && count <= 0)
+            {
+                return;
+            }
+
+            EnqueueCommand(RankStackCommand.TransferOut(normalizedSuits, count, actionId));
+        }
+
+        internal bool TryDequeueCommand(out RankStackCommand command)
+        {
+            if (_commandsQueue.Count == 0)
+            {
+                command = default;
                 return false;
             }
 
-            payload = _receiveQueue.Dequeue();
+            command = _commandsQueue.First.Value;
+            _commandsQueue.RemoveFirst();
             return true;
+        }
+
+        public bool IsSuitPendingReceive(string suit)
+        {
+            var normalized = NormalizeSuit(suit);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                return false;
+            }
+
+            foreach (var command in _commandsQueue)
+            {
+                if (command.Type == RankStackCommandType.ApplySnapshot)
+                {
+                    break;
+                }
+
+                if (command.Type != RankStackCommandType.Receive || command.Suits == null)
+                {
+                    continue;
+                }
+
+                for (var i = 0; i < command.Suits.Count; i++)
+                {
+                    if (string.Equals(NormalizeSuit(command.Suits[i]), normalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         private static string NormalizeRank(string rank)
@@ -168,6 +228,51 @@ namespace Features.PlayerHandSystemImpl.Presentation.ViewModel
             }
 
             _cards.Value = next;
+        }
+
+        private void EnqueueCommand(RankStackCommand command, bool coalesceSnapshot = false)
+        {
+            if (coalesceSnapshot &&
+                command.Type == RankStackCommandType.ApplySnapshot &&
+                _commandsQueue.Last != null &&
+                _commandsQueue.Last.Value.Type == RankStackCommandType.ApplySnapshot)
+            {
+                _commandsQueue.Last.Value = command;
+            }
+            else
+            {
+                _commandsQueue.AddLast(command);
+            }
+
+            _commandQueued.OnNext(Unit.Default);
+        }
+
+        private long NextSnapshotRevision()
+        {
+            _snapshotRevision++;
+            return _snapshotRevision;
+        }
+
+        private static List<string> NormalizeSuits(IReadOnlyList<string> suits)
+        {
+            var normalized = new List<string>();
+            if (suits == null)
+            {
+                return normalized;
+            }
+
+            for (var i = 0; i < suits.Count; i++)
+            {
+                var suit = NormalizeSuit(suits[i]);
+                if (string.IsNullOrWhiteSpace(suit))
+                {
+                    continue;
+                }
+
+                normalized.Add(suit);
+            }
+
+            return normalized;
         }
     }
 }

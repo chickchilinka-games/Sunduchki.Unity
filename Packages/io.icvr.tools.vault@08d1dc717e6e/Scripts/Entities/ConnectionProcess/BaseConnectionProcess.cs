@@ -14,31 +14,25 @@
 // // is strictly forbidden unless prior written permission is obtained
 // // from ICVR LLC.
 
-using System;
 using System.Collections.Generic;
 using System.Threading;
 using ICVR.Tools.Vault.Data;
 using ICVR.Tools.Vault.Interfaces;
 using ICVR.Tools.Vault.Utils;
-using UnityEngine;
 
 namespace ICVR.Tools.Vault.Entities
 {
     internal abstract class BaseConnectionProcess : VaultDispatcher, IConnectionProcess
     {
+        protected string LoginUrl => VaultConfig.VaultUrl + "/v1/auth/" + AuthType.ToString().ToLower() + "/login";
         public abstract AuthType AuthType { get; }
 
-        protected string LoginUrl => VaultConfig.VaultUrl + "/v1/auth/" + AuthType.ToString().ToLower() + "/login";
-     
         public bool Connect(string credentials, CancellationToken cancellationToken)
         {
             var token = GetToken(credentials, cancellationToken);
 
-            if (string.IsNullOrEmpty(token))
-            {
-                return false;
-            }
-            
+            if (string.IsNullOrEmpty(token)) return false;
+
             Initialize(token);
 
             return true;
@@ -52,16 +46,16 @@ namespace ICVR.Tools.Vault.Entities
         public string GetRawData(VaultConnectionSettings connectionSettings, CancellationToken cancellationToken)
         {
             var response = GetData(connectionSettings.Environment.ToString(),
-                connectionSettings.ProjectName, 
-                connectionSettings.ClientName, 
+                connectionSettings.ProjectName,
+                connectionSettings.ClientName,
                 cancellationToken);
             var rawData = SerializationUtils.Deserialize<PullResponseData>(response);
-            
+
             return rawData?.data?.data.ToString();
         }
 
         protected abstract string GetToken(string credentials, CancellationToken cancellationToken);
-        
+
         protected string Post(string url, Dictionary<string, string> parameters, CancellationToken cancellationToken)
         {
             return WebUtils.Post(url, parameters, cancellationToken);

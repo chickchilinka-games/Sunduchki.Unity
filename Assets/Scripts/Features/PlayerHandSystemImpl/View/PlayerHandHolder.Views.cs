@@ -12,7 +12,7 @@ namespace Features.PlayerHandSystemImpl.View
         private void RemoveMissingBonusViews(IReadOnlyCollection<BonusCardViewModel> active)
         {
             var toRemove = new List<BonusCardViewModel>();
-            foreach (var entry in _bonusViews)
+            foreach (var entry in _bonusViews.ToArray())
             {
                 if (!active.Contains(entry.Key))
                 {
@@ -30,11 +30,13 @@ namespace Features.PlayerHandSystemImpl.View
             }
         }
 
-        private IReadOnlyList<RankStackViewModel> BuildStandardLayoutOrder(IReadOnlyCollection<RankStackViewModel> activeStandard)
+        private IReadOnlyList<RankStackViewModel> BuildStandardLayoutOrder(
+            IReadOnlyCollection<RankStackViewModel> activeStandard,
+            IReadOnlyList<RankStackViewModel> presenterStandard)
         {
             var ordered = new List<RankStackViewModel>();
 
-            foreach (var entry in _standardViews)
+            foreach (var entry in _standardViews.ToArray())
             {
                 var viewModel = entry.Key;
                 var view = entry.Value;
@@ -43,15 +45,13 @@ namespace Features.PlayerHandSystemImpl.View
                     continue;
                 }
 
-                if (activeStandard.Contains(viewModel) ||
-                    _removingStandard.Contains(viewModel) ||
-                    _waitingStandardAnimation.Contains(viewModel))
+                if (activeStandard.Contains(viewModel) || _pendingStandardRemoval.Contains(viewModel))
                 {
                     ordered.Add(viewModel);
                 }
             }
 
-            foreach (var viewModel in _presenter.StandardCards)
+            foreach (var viewModel in presenterStandard)
             {
                 if (viewModel == null || ordered.Contains(viewModel))
                 {
@@ -92,9 +92,8 @@ namespace Features.PlayerHandSystemImpl.View
 
             view.transform.SetParent(parent, false);
             view.gameObject.SetActive(true);
-            view.ConfigureReceiveOrigins(ResolveDeckOrigin, ResolveOpponentHandAnchor);
-            view.SetCompletionAnimationFinished += OnSetCompletionAnimationFinished;
-            view.AnimationsBecameIdle += OnStandardViewAnimationsBecameIdle;
+            view.ConfigureRuntime(_cardTransferAnimator, ResolveDeckOrigin, ResolveOpponentHandAnchor);
+            view.RemovalReady += OnStandardViewRemovalReady;
             view.Initialize(viewModel).Forget();
             return view;
         }
@@ -107,10 +106,10 @@ namespace Features.PlayerHandSystemImpl.View
             }
 
             _standardViews.Clear();
-            _removingStandard.Clear();
-            _waitingStandardAnimation.Clear();
-            _animationGate?.Clear();
-            _receiveBuffer?.Clear();
+            _pendingStandardRemoval.Clear();
+            _pendingStandardRemovalSince.Clear();
+            _pendingBonusReceives.Clear();
+            _pendingTransferOuts.Clear();
 
             foreach (var view in _bonusViews.Values)
             {
@@ -129,8 +128,7 @@ namespace Features.PlayerHandSystemImpl.View
 
             try
             {
-                view.SetCompletionAnimationFinished -= OnSetCompletionAnimationFinished;
-                view.AnimationsBecameIdle -= OnStandardViewAnimationsBecameIdle;
+                view.RemovalReady -= OnStandardViewRemovalReady;
                 Destroy(view.gameObject);
             }
             catch (Exception ex)
@@ -156,10 +154,81 @@ namespace Features.PlayerHandSystemImpl.View
             }
         }
 
+        private bool TryGetViewModelByView(RankStackView view, out RankStackViewModel viewModel)
+        {
+            viewModel = null;
+            if (view == null)
+            {
+                return false;
+            }
+
+            foreach (var entry in _standardViews)
+            {
+                if (!ReferenceEquals(entry.Value, view))
+                {
+                    continue;
+                }
+
+                viewModel = entry.Key;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryGetStandardViewByRank(string rank, out RankStackView view, out RankStackViewModel viewModel)
+        {
+            view = null;
+            viewModel = null;
+            var rankKey = NormalizeRank(rank);
+            if (string.IsNullOrWhiteSpace(rankKey))
+            {
+                return false;
+            }
+
+            foreach (var entry in _standardViews)
+            {
+                var candidate = entry.Key;
+                var candidateView = entry.Value;
+                if (candidate == null || candidateView == null)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(candidate.Rank, rankKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                view = candidateView;
+                viewModel = candidate;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool IsViewModelActive(RankStackViewModel viewModel)
+        {
+            if (viewModel == null)
+            {
+                return false;
+            }
+
+            foreach (var current in _presenter.StandardCards)
+            {
+                if (ReferenceEquals(current, viewModel))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private void ForceRebuildLayout()
         {
             _layoutController?.ForceRebuild();
         }
     }
 }
-

@@ -16,6 +16,7 @@ namespace Features.PlayerHandSystemImpl.Presentation.Storage
         private readonly Dictionary<string, RankStackViewModel> _byRank =
             new(StringComparer.OrdinalIgnoreCase);
         private readonly Subject<Unit> _changed = new();
+        private long _snapshotRevision;
 
         public RankStackViewModelStorage(IRankStackViewModelFactory factory)
         {
@@ -54,7 +55,7 @@ namespace Features.PlayerHandSystemImpl.Presentation.Storage
                 }
                 else
                 {
-                    viewModel.ApplySnapshot(suits);
+                    viewModel.ApplySnapshot(suits, NextSnapshotRevision());
                 }
 
                 seenRanks.Add(rankKey);
@@ -102,6 +103,7 @@ namespace Features.PlayerHandSystemImpl.Presentation.Storage
 
             _items.Clear();
             _byRank.Clear();
+            _snapshotRevision = 0;
             _changed.OnNext(Unit.Default);
         }
 
@@ -123,6 +125,12 @@ namespace Features.PlayerHandSystemImpl.Presentation.Storage
             return string.IsNullOrWhiteSpace(suit)
                 ? string.Empty
                 : suit.Trim().ToLowerInvariant();
+        }
+
+        private long NextSnapshotRevision()
+        {
+            _snapshotRevision++;
+            return _snapshotRevision;
         }
 
     }

@@ -21,8 +21,8 @@ namespace ICVR.Tools.Vault.Entities
 {
     public class JWTCredentialsBuilder
     {
-        private JWTCredentials _credentials;
-        
+        private readonly JWTCredentials _credentials;
+
         public JWTCredentialsBuilder(string jwt, string role)
         {
             _credentials = new JWTCredentials(AuthType.JWT, jwt, role);
@@ -33,9 +33,7 @@ namespace ICVR.Tools.Vault.Entities
             if (_credentials == null
                 || string.IsNullOrEmpty(_credentials.Jwt)
                 || string.IsNullOrEmpty(_credentials.Role))
-            {
                 return null;
-            }
 
             return SerializationUtils.Serialize(_credentials);
         }

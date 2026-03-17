@@ -18,13 +18,13 @@ namespace ICVR.Tools.Vault.Data
 {
     public class JWTCredentials : AuthCredentials
     {
-        public string Jwt { get; private set; }
-        public string Role { get; private set; }
-
         public JWTCredentials(AuthType authType, string jwt, string role) : base(authType)
         {
             Jwt = jwt;
             Role = role;
         }
+
+        public string Jwt { get; private set; }
+        public string Role { get; private set; }
     }
 }

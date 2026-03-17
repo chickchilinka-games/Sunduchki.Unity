@@ -27,9 +27,6 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
             Container.BindInterfacesAndSelfTo<PlayerHandPresentationContext>().AsSingle();
             Container.BindInterfacesAndSelfTo<RankStackViewModelStorage>().AsSingle();
             Container.BindInterfacesAndSelfTo<BonusCardViewModelStorage>().AsSingle();
-            Container.Bind<PlayerHandStateStoreApplier>().AsSingle();
-            Container.Bind<PlayerHandStoreResetOnDeactivate>().AsSingle();
-            Container.Bind<PlayerHandStoreChangePublisher>().AsSingle();
             Container.BindInterfacesAndSelfTo<PlayerHandPresenter>().AsSingle();
             Container.BindInterfacesAndSelfTo<PlayerHandInteractionPresenter>().AsSingle();
             Container.BindInterfacesAndSelfTo<BonusHandPresenter>().AsSingle();
@@ -37,12 +34,7 @@ namespace Features.PlayerHandSystemImpl.Bootstrap
             Container.BindInterfacesAndSelfTo<CardRequestPresentationPresenter>().AsSingle();
             Container.BindInterfacesTo<PlayerHandCommands>().AsSingle();
             Container.Bind<IRankStackViewModelFactory>().To<RankStackViewModelFactory>().AsSingle();
-            Container.BindInterfacesTo<PlayerHandSessionPresentationRule>().AsSingle();
-            Container.BindInterfacesTo<PlayerHandSnapshotPresentationRule>().AsSingle();
-            Container.BindInterfacesTo<PlayerHandTurnPresentationRule>().AsSingle();
-            Container.BindInterfacesTo<PlayerHandDefensePresentationRule>().AsSingle();
-            Container.BindInterfacesTo<PlayerHandCardRequestPresentationRule>().AsSingle();
-            Container.BindInterfacesTo<PlayerHandBonusPresentationRule>().AsSingle();
+            Container.BindInterfacesTo<PlayerHandPresentationCoordinatorRule>().AsSingle();
             Container.BindInterfacesTo<BonusHandConfigPresentationRule>().AsSingle();
             Container.BindInterfacesTo<BonusHandUsePresentationRule>().AsSingle();
             Container.Bind<ITargetPlayerSelector>().To<SingleOpponentSelector>().AsSingle();

@@ -36,7 +36,6 @@ namespace Features.PlayerHandSystemImpl.View
         private ManagedAsset<Sprite> _iconHandle;
         private CompositeDisposable _bindings;
         private RectTransform _iconRect;
-        private Vector2 _iconBaseAnchored;
         private RectTransform _visualRect;
         private Vector2 _visualBaseAnchored;
 
@@ -72,7 +71,6 @@ namespace Features.PlayerHandSystemImpl.View
             if (_icon != null)
             {
                 _iconRect = _icon.rectTransform;
-                _iconBaseAnchored = _iconRect.anchoredPosition;
             }
         }
 
