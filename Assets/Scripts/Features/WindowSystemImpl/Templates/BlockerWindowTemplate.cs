@@ -1,5 +1,5 @@
 using Cysharp.Threading.Tasks;
-using ICVR.Window.Abstract;
+using Chickchilinka.Window.Abstract;
 
 namespace Features.WindowSystemImpl.Templates
 {

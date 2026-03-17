@@ -5,13 +5,19 @@ namespace Modules.PlayerHand.Data
     public readonly struct PlayerHandSnapshotEvent
     {
         public string PlayerId { get; }
-        public IReadOnlyList<StandardCardData> Cards { get; }
+        public IReadOnlyList<StandardCardData> StandardCards { get; }
+        public IReadOnlyList<BonusCardData> BonusCards { get; }
         public long Revision { get; }
 
-        public PlayerHandSnapshotEvent(string playerId, IReadOnlyList<StandardCardData> cards, long revision)
+        public PlayerHandSnapshotEvent(
+            string playerId,
+            IReadOnlyList<StandardCardData> standardCards,
+            IReadOnlyList<BonusCardData> bonusCards,
+            long revision)
         {
             PlayerId = playerId ?? string.Empty;
-            Cards = cards ?? new List<StandardCardData>();
+            StandardCards = standardCards ?? new List<StandardCardData>();
+            BonusCards = bonusCards ?? new List<BonusCardData>();
             Revision = revision;
         }
     }

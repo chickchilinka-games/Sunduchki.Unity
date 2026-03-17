@@ -2,7 +2,7 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using Features.AuthenticationSystemImpl.Views;
 using Features.WindowSystemImpl.Templates;
-using ICVR.Window;
+using Chickchilinka.Window;
 using Modules.AuthenticationSystem.Data;
 using Modules.AuthenticationSystem.Services;
 using Modules.StateMachine.Substeps;

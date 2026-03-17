@@ -5,7 +5,7 @@ using Features.AppLifecycle.States.Game.View;
 using Features.AppLifecycle.States.Home;
 using Features.AppLifecycle.Services;
 using Features.WindowSystemImpl.Templates;
-using ICVR.Window;
+using Chickchilinka.Window;
 using Modules.Lobby.Services;
 using Modules.StateMachine.States;
 using R3;

@@ -1,6 +1,6 @@
 using Cysharp.Threading.Tasks;
-using ICVR.Window.Abstract;
-using ICVR.Window.Basics;
+using Chickchilinka.Window.Abstract;
+using Chickchilinka.Window.Basics;
 using R3;
 using TMPro;
 using UnityEngine;

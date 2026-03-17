@@ -1,7 +1,7 @@
 using Cysharp.Threading.Tasks;
 using Features.UI.Components;
 using Features.WindowSystemImpl.Templates;
-using ICVR.Window;
+using Chickchilinka.Window;
 using Zenject;
 
 namespace Features.AuthenticationSystemImpl.Views

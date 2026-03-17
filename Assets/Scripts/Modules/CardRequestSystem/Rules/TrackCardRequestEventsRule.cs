@@ -35,7 +35,7 @@ namespace Modules.CardRequestSystem.Rules
 
             _client.Transferred.Subscribe(evt =>
                 {
-                    _internalService.OnCardsTransferred(evt.FromPlayerId, evt.TargetPlayerId, evt.Cards);
+                    _internalService.OnCardsTransferred(evt.ActionId, evt.FromPlayerId, evt.TargetPlayerId, evt.Cards);
                 })
                 .AddTo(_subscriptions);
 

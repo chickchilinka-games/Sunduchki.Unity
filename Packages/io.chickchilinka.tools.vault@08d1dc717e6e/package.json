@@ -1,0 +1,11 @@
+{
+  "name": "io.chickchilinka.tools.vault",
+  "version": "0.3.5",
+  "displayName": "Vault",
+  "description": "Tools and functions for connection and communication with vault.",
+  "unity": "2021.3",
+  "author": "Chickchilinka",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.0.2"
+  }
+}

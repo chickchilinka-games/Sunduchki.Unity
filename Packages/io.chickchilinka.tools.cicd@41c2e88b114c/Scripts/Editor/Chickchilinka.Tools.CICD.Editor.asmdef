@@ -1,0 +1,19 @@
+{
+    "name": "Chickchilinka.Tools.CICD.Editor",
+    "rootNamespace": "",
+    "references": [
+        "Chickchilinka.Tools.CICD",
+        "VaultScripts"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

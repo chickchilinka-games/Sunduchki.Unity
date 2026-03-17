@@ -1,5 +1,5 @@
 using Features.WindowSystemImpl.Data;
-using ICVR.Window.Abstract;
+using Chickchilinka.Window.Abstract;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;

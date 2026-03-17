@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using Features.PlayerHandSystemImpl.ViewModel;
+using Features.PlayerHandSystemImpl.Presentation.ViewModel;
 
 namespace Features.PlayerHandSystemImpl.Interfaces
 {

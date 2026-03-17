@@ -17,6 +17,8 @@ namespace Features.DefenseDecision.View
 {
     public sealed class DefenseRequestedRankView : MonoBehaviour
     {
+        private const string HiddenRankToken = "???";
+
         [SerializeField] private GameObject _root;
         [SerializeField] private CanvasGroup _canvasGroup;
         [SerializeField] private TMP_Text _askerLabel;
@@ -117,8 +119,7 @@ namespace Features.DefenseDecision.View
 
             var evt = state.LastEvent;
             var localId = _lobbyService.GetLocalPlayerId();
-            if (string.IsNullOrWhiteSpace(localId) ||
-                !string.Equals(evt.TargetId, localId, StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(localId))
             {
                 return;
             }
@@ -126,23 +127,61 @@ namespace Features.DefenseDecision.View
             switch (evt.EventType)
             {
                 case CardRequestEventType.Requested:
+                    if (!IsLocalRequestTarget(evt, localId))
+                    {
+                        return;
+                    }
+
                     _isRequestActive = true;
                     _requestedRank = evt.Rank ?? string.Empty;
                     _askerId = evt.AskerId ?? string.Empty;
                     UpdateDisplay();
                     break;
-                case CardRequestEventType.Transferred:
                 case CardRequestEventType.Denied:
+                    if (!IsLocalRequestTarget(evt, localId))
+                    {
+                        return;
+                    }
+
                     if (!_isRequestActive)
                     {
                         ShowFallbackRequest(evt);
                     }
+
                     _isRequestActive = false;
                     _requestedRank = string.Empty;
                     _askerId = string.Empty;
                     UpdateDisplay();
                     break;
+                case CardRequestEventType.Transferred:
+                    HandleTransferredRequestResolution(evt, localId);
+                    break;
             }
+        }
+
+        private static bool IsLocalRequestTarget(CardRequestEvent evt, string localId)
+        {
+            return string.Equals(evt.TargetId, localId, StringComparison.Ordinal);
+        }
+
+        private void HandleTransferredRequestResolution(CardRequestEvent evt, string localId)
+        {
+            if (!_isRequestActive)
+            {
+                return;
+            }
+
+            // Transfer events currently carry source->destination ids. If local player is the source,
+            // it means the opponent's request to local player has been resolved.
+            if (!string.Equals(evt.AskerId, localId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _isRequestActive = false;
+            _requestedRank = string.Empty;
+            _askerId = string.Empty;
+            UpdateDisplay();
         }
 
         private void UpdateDisplay()
@@ -233,7 +272,7 @@ namespace Features.DefenseDecision.View
         private void ShowFallbackRequest(CardRequestEvent evt)
         {
             _isRequestActive = true;
-            _requestedRank = "???";
+            _requestedRank = string.IsNullOrWhiteSpace(evt.Rank) ? HiddenRankToken : evt.Rank;
             _askerId = evt.AskerId ?? string.Empty;
             UpdateDisplay();
             _isRequestActive = false;
@@ -267,6 +306,11 @@ namespace Features.DefenseDecision.View
             if (string.IsNullOrEmpty(normalized))
             {
                 return string.Empty;
+            }
+
+            if (string.Equals(normalized, HiddenRankToken, StringComparison.Ordinal))
+            {
+                return "a hidden rank";
             }
 
             var word = normalized switch

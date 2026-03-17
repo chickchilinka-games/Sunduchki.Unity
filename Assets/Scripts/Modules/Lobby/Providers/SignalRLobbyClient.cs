@@ -133,7 +133,7 @@ namespace Modules.Lobby.Providers
                     Array.Empty<string>()));
             }));
 
-            _subscriptions.Add(_sharedHubConnection.Subscribe<CardsTransferredDto>("CardsTransferred", payload =>
+            _subscriptions.Add(_sharedHubConnection.Subscribe<HandDeltaDto>("HandDelta", payload =>
             {
                 if (payload == null)
                 {
@@ -151,9 +151,11 @@ namespace Modules.Lobby.Providers
                 }
 
                 var rank = payload.CompletedSetRank;
-                if (string.IsNullOrWhiteSpace(rank) && payload.Cards != null && payload.Cards.Length > 0)
+                if (string.IsNullOrWhiteSpace(rank) &&
+                    payload.RemovedCards != null &&
+                    payload.RemovedCards.Length > 0)
                 {
-                    rank = payload.Cards[0]?.Rank ?? string.Empty;
+                    rank = payload.RemovedCards[0]?.Rank ?? string.Empty;
                 }
 
                 if (string.IsNullOrWhiteSpace(rank))
@@ -223,6 +225,7 @@ namespace Modules.Lobby.Providers
             _startedSignaled = true;
             Debug.Log($"[Lobby] GameStarted inferred from {source}.");
             listener.OnGameStarted();
+            RequestSyncState().Forget();
         }
 
         private sealed class PlayerJoinedDto
@@ -230,11 +233,11 @@ namespace Modules.Lobby.Providers
             public string PlayerId { get; set; }
         }
 
-        private sealed class CardsTransferredDto
+        private sealed class HandDeltaDto
         {
             public string PlayerId { get; set; }
             public string Destination { get; set; }
-            public TransferCardDto[] Cards { get; set; }
+            public TransferCardDto[] RemovedCards { get; set; }
             public bool CompletedSet { get; set; }
             public string CompletedSetRank { get; set; }
         }

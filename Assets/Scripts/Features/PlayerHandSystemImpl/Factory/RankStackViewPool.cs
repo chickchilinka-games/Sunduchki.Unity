@@ -1,6 +1,6 @@
 using Cysharp.Threading.Tasks;
+using Features.PlayerHandSystemImpl.Presentation.ViewModel;
 using Features.PlayerHandSystemImpl.View;
-using Features.PlayerHandSystemImpl.ViewModel;
 
 namespace Features.PlayerHandSystemImpl.Factory
 {

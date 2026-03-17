@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
+using Features.PlayerHandSystemImpl.Utils;
 using Features.PlayerHandSystemImpl.View;
 using Modules.AssetSystem.Models;
 using Modules.AssetSystem.Services;
@@ -47,6 +49,50 @@ namespace Features.CardRequestSystemImpl.View
             AnimateTransferAsync(evt, localPlayerId).Forget();
         }
 
+        public async UniTask AnimateToOpponentAsync(
+            Image sourceImage,
+            string rank,
+            string suit,
+            int index,
+            CancellationToken cancellationToken = default,
+            Vector3? startOverride = null)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (_opponentHandAnchor == null || _animationRoot == null || _cardPrefab == null)
+            {
+                return;
+            }
+
+            var spriteResult = await ResolveSpriteAsync(rank, suit, sourceImage);
+            if (spriteResult.Sprite == null)
+            {
+                spriteResult.Handle?.Dispose();
+                return;
+            }
+
+            if (sourceImage != null)
+            {
+                var color = sourceImage.color;
+                sourceImage.color = new Color(color.r, color.g, color.b, 0f);
+            }
+
+            var start = sourceImage != null
+                ? sourceImage.rectTransform.position
+                : (startOverride ?? _animationRoot.position);
+            await PlayFlightAsync(
+                spriteResult.Sprite,
+                spriteResult.Handle,
+                start,
+                _opponentHandAnchor.position,
+                index,
+                fadeOut: true,
+                cancellationToken);
+        }
+
         private async UniTaskVoid AnimateTransferAsync(CardRequestEvent evt, string localPlayerId)
         {
             if (string.IsNullOrWhiteSpace(localPlayerId))
@@ -74,14 +120,8 @@ namespace Features.CardRequestSystemImpl.View
                 ? evt.Cards.Count
                 : (evt.Count > 0 ? evt.Count : 1);
 
-            var transferScope = new TransferScope();
             try
             {
-                if (isFromLocal)
-                {
-                    _localHandHolder?.MarkRankTransferredOut(rank);
-                }
-
                 if (isFromLocal && suits.Count > 0)
                 {
                     if (count > suits.Count)
@@ -100,26 +140,20 @@ namespace Features.CardRequestSystemImpl.View
                     {
                         var hasSuit = suits.Count > 0;
                         var suit = hasSuit ? PickSuit(suits) : PickSuitFallback();
-                        await AnimateFromLocalAsync(rank, suit, hasSuit, i, transferScope);
+                        await AnimateFromLocalAsync(rank, suit, hasSuit, i);
                     }
                     else
                     {
-                        await AnimateToLocalAsync(rank, i, transferScope);
+                        await AnimateToLocalAsync(rank, i);
                     }
                 }
             }
             finally
             {
-                if (isFromLocal)
-                {
-                    _localHandHolder?.CompleteRankTransfer(rank);
-                }
-
-                transferScope.Dispose();
             }
         }
 
-        private async UniTask AnimateFromLocalAsync(string rank, string suit, bool useSourceImage, int index, TransferScope transferScope)
+        private async UniTask AnimateFromLocalAsync(string rank, string suit, bool useSourceImage, int index)
         {
             var toAnchor = _opponentHandAnchor;
             if (toAnchor == null)
@@ -128,16 +162,12 @@ namespace Features.CardRequestSystemImpl.View
             }
 
             Image sourceImage = null;
-            Action restore = null;
             if (useSourceImage &&
                 _localHandHolder != null &&
                 _localHandHolder.TryGetStandardCardImage(rank, suit, out sourceImage) &&
                 sourceImage != null)
             {
-                restore = HideImage(sourceImage);
-                var view = sourceImage.GetComponentInParent<RankStackView>();
-                view?.MarkTransferredOut();
-                transferScope?.Ensure(view);
+                HideImage(sourceImage);
             }
 
             var spriteResult = await ResolveSpriteAsync(rank, suit, sourceImage);
@@ -158,7 +188,7 @@ namespace Features.CardRequestSystemImpl.View
             }
         }
 
-        private async UniTask AnimateToLocalAsync(string rank, int index, TransferScope transferScope)
+        private async UniTask AnimateToLocalAsync(string rank, int index)
         {
             var fromAnchor = _opponentHandAnchor;
             if (fromAnchor == null)
@@ -172,14 +202,11 @@ namespace Features.CardRequestSystemImpl.View
             if (targetImage != null)
             {
                 restore = HideImage(targetImage);
-                var view = targetImage.GetComponentInParent<RankStackView>();
-                transferScope?.Ensure(view);
-                targetView = view;
+                targetView = targetImage.GetComponentInParent<RankStackView>();
             }
             else if (_localHandHolder != null && _localHandHolder.TryGetStandardCardView(rank, out var view))
             {
                 targetView = view;
-                transferScope?.Ensure(view);
             }
 
             var spriteResult = await ResolveSpriteAsync(rank, string.Empty, targetImage);
@@ -231,8 +258,15 @@ namespace Features.CardRequestSystemImpl.View
             Vector3 start,
             Vector3 target,
             int index,
-            bool fadeOut)
+            bool fadeOut,
+            CancellationToken cancellationToken = default)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                handle?.Dispose();
+                return;
+            }
+
             var view = Instantiate(_cardPrefab, _animationRoot);
             view.sprite = sprite;
             view.color = new Color(1f, 1f, 1f, 1f);
@@ -248,7 +282,7 @@ namespace Features.CardRequestSystemImpl.View
 
             if (_staggerDelay > 0f && index > 0)
             {
-                await UniTask.Delay(TimeSpan.FromSeconds(_staggerDelay * index));
+                await UniTask.Delay(TimeSpan.FromSeconds(_staggerDelay * index), cancellationToken: cancellationToken);
             }
 
             var sequence = DOTween.Sequence().SetUpdate(true);
@@ -258,48 +292,10 @@ namespace Features.CardRequestSystemImpl.View
                 sequence.Append(view.DOFade(0f, _fadeOutDuration));
             }
             var timeoutSeconds = Mathf.Max(0.1f, _toTargetDuration + (fadeOut ? _fadeOutDuration : 0f) + _animationTimeoutPadding);
-            await AwaitTweenAsync(sequence, timeoutSeconds);
+            await TweenAwaiter.AwaitAsync(sequence, timeoutSeconds, cancellationToken);
 
             Destroy(view.gameObject);
             handle?.Dispose();
-        }
-
-        private static async UniTask AwaitTweenAsync(Tween tween, float timeoutSeconds)
-        {
-            if (tween == null)
-            {
-                return;
-            }
-
-            tween.SetUpdate(true);
-            var completionTcs = new UniTaskCompletionSource();
-            var completionSignaled = false;
-            void SignalCompletion()
-            {
-                if (completionSignaled)
-                {
-                    return;
-                }
-
-                completionSignaled = true;
-                completionTcs.TrySetResult();
-            }
-
-            tween.OnComplete(SignalCompletion);
-            tween.OnKill(SignalCompletion);
-
-            if (!tween.IsActive() || tween.IsComplete())
-            {
-                SignalCompletion();
-            }
-
-            var safeTimeout = Mathf.Max(0.1f, timeoutSeconds);
-            var timeoutTask = UniTask.Delay(TimeSpan.FromSeconds(safeTimeout), DelayType.UnscaledDeltaTime);
-            var winner = await UniTask.WhenAny(completionTcs.Task, timeoutTask);
-            if (winner != 0 && tween.IsActive())
-            {
-                tween.Kill(false);
-            }
         }
 
         private async UniTask<SpriteResult> ResolveSpriteAsync(string rank, string suit, Image sourceImage)
@@ -436,28 +432,5 @@ namespace Features.CardRequestSystemImpl.View
             }
         }
 
-        private sealed class TransferScope : IDisposable
-        {
-            private RankStackView _view;
-            private IDisposable _scope;
-
-            public void Ensure(RankStackView view)
-            {
-                if (_scope != null || view == null)
-                {
-                    return;
-                }
-
-                _view = view;
-                _scope = view.BeginExternalAnimation();
-            }
-
-            public void Dispose()
-            {
-                _scope?.Dispose();
-                _scope = null;
-                _view = null;
-            }
-        }
     }
 }
